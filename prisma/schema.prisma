@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -25,6 +25,24 @@ model Product {
   weight      String?
   condition   String   @default("New")
   quantity    Int      @default(0)
+  
+  // Funko Pop specific fields
+  character   String?
+  series      String?  
+  exclusivity String?  // "Exclusive", "Limited Edition", "Convention", etc.
+  releaseDate String?  // Year or date of release
+  funkoPop    Boolean  @default(false) // Flag to identify Funko Pop products
+  
+  // eBay listing requirements
+  mpn         String?  // Manufacturer Part Number
+  isbn        String?  // For books/media
+  itemLength  String?  // Separate dimensions
+  itemWidth   String?
+  itemHeight  String?
+  material    String?  // Primary material
+  theme       String?  // Product theme
+  ageGroup    String?  // Target age group
+  features    String?  // JSON array of features
   currency    String   @default("USD")
   lowestRecordedPrice  Float?
   highestRecordedPrice Float?

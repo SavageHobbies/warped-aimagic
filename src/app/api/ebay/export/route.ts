@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
+import { ebayService } from '@/lib/ebay'
 
 const prisma = new PrismaClient()
 
@@ -232,11 +233,13 @@ function formatItemSpecifics(specifics: Record<string, string>): string {
   return pairs.join(';')
 }
 
-function generateEBayCSV(products: any[], templateType: string, listingData: EBayListingData[]): string { // eslint-disable-line @typescript-eslint/no-explicit-any
+function generateEBayCSV(products: any[], templateType: string, listingData: EBayListingData[], effectiveCategoryId?: string): string { // eslint-disable-line @typescript-eslint/no-explicit-any
   const config = TEMPLATE_CONFIGS[templateType as keyof typeof TEMPLATE_CONFIGS]
   if (!config) {
     throw new Error(`Unknown template type: ${templateType}`)
   }
+  
+  const categoryId = effectiveCategoryId || config.category
 
   // CSV Headers - this is the eBay bulk upload format
   const headers = [
@@ -283,7 +286,7 @@ function generateEBayCSV(products: any[], templateType: string, listingData: EBa
   listingData.forEach(data => {
     const row = [
       'Add', // Action
-      config.category, // Category
+      categoryId, // Category
       '1000', // ConditionID (1000 = New)
       escapeCSVField(data.title),
       escapeCSVField(data.subtitle || ''),
@@ -327,7 +330,7 @@ function generateEBayCSV(products: any[], templateType: string, listingData: EBa
 
 export async function POST(request: NextRequest) {
   try {
-    const { productIds, templateType } = await request.json()
+    const { productIds, templateType, useDynamicCategories = false } = await request.json()
 
     if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
       return NextResponse.json({ error: 'No products selected' }, { status: 400 })
@@ -355,8 +358,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No products found' }, { status: 404 })
     }
 
+    // If eBay API is configured and user wants dynamic categories, analyze products
+    let dynamicCategoryData = null
+    if (useDynamicCategories && ebayService.isConfigured()) {
+      try {
+        console.log('Using dynamic eBay category analysis...')
+        const sampleProduct = products[0]
+        if (sampleProduct.title) {
+          const categoryAnalysis = await ebayService.findBestCategory(
+            sampleProduct.title,
+            sampleProduct.brand || undefined
+          )
+          
+          if (categoryAnalysis) {
+            const aspects = await ebayService.getCategoryAspects(categoryAnalysis.categoryId)
+            if (aspects) {
+              dynamicCategoryData = {
+                categoryId: categoryAnalysis.categoryId,
+                categoryName: categoryAnalysis.categoryName,
+                confidence: categoryAnalysis.confidence,
+                requiredAspects: aspects.filter(a => a.aspectConstraint.aspectUsage === 'REQUIRED'),
+                recommendedAspects: aspects.filter(a => a.aspectConstraint.aspectUsage === 'RECOMMENDED')
+              }
+              console.log(`Found dynamic category: ${categoryAnalysis.categoryName} (${categoryAnalysis.categoryId}) with confidence ${categoryAnalysis.confidence}`)
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to get dynamic eBay category, falling back to template:', error)
+      }
+    }
+
     // Convert products to eBay listing format
-    const listingData: EBayListingData[] = products.map(product => {
+    const listingData: EBayListingData[] = await Promise.all(products.map(async product => {
       const aiContent = Array.isArray(product.aiContent) ? product.aiContent[0] as any : product.aiContent as any || null // eslint-disable-line @typescript-eslint/no-explicit-any
       const lowestOffer = product.offers?.[0] || null
       
@@ -365,13 +399,95 @@ export async function POST(request: NextRequest) {
       const description = aiContent?.detailedDescription || aiContent?.description || product.description || 'Product description not available.'
       const picURL = product.images?.[0]?.originalUrl || ''
       
-      // Pricing logic
-      const basePrice = lowestOffer?.price || product.lowestRecordedPrice || 9.99
+      // Enhanced pricing with competitive analysis if eBay API is available
+      let basePrice = lowestOffer?.price || product.lowestRecordedPrice || 9.99
+      
+      if (ebayService.isConfigured()) {
+        try {
+          const competitivePricing = await ebayService.getCompetitivePricing(
+            product.title || '',
+            dynamicCategoryData?.categoryId
+          )
+          if (competitivePricing?.averagePrice && competitivePricing.sampleSize > 5) {
+            basePrice = competitivePricing.averagePrice
+            console.log(`Using competitive pricing for ${product.title}: $${basePrice} (based on ${competitivePricing.sampleSize} samples)`)
+          }
+        } catch (error) {
+          console.error('Failed to get competitive pricing, using fallback:', error)
+        }
+      }
+      
       const startPrice = Math.max(basePrice * 0.8, 0.99) // Start 20% below market price, minimum $0.99
       const buyItNowPrice = basePrice * 1.2 // Buy it now at 20% above market price
 
-      // Build item specifics based on template type and available data
+      // Build item specifics based on dynamic category or template
       let itemSpecifics: Record<string, string> = {}
+      
+      if (dynamicCategoryData) {
+        // Use dynamic eBay category requirements
+        console.log(`Building item specifics for dynamic category: ${dynamicCategoryData.categoryName}`)
+        
+        // Start with required aspects
+        dynamicCategoryData.requiredAspects.forEach(aspect => {
+          const aspectName = aspect.localizedAspectName
+          let value = ''
+          
+          // Map common aspects to product data
+          switch (aspectName.toLowerCase()) {
+            case 'brand':
+              value = product.brand || aiContent?.itemSpecifics?.Brand || ''
+              break
+            case 'condition':
+              value = 'New'
+              break
+            case 'upc':
+              value = product.upc || ''
+              break
+            case 'color':
+            case 'colour':
+              value = extractColorFromProduct(product, aiContent)
+              break
+            case 'size':
+              value = extractSizeFromProduct(product, aiContent)
+              break
+            case 'material':
+              value = aiContent?.itemSpecifics?.Material || 'Unknown'
+              break
+            case 'type':
+              if (dynamicCategoryData.categoryName.toLowerCase().includes('funko')) {
+                value = 'Pop! Vinyl'
+              }
+              break
+            case 'character':
+              value = extractCharacterFromTitle(title)
+              break
+            default:
+              // Try to extract from AI content
+              value = aiContent?.itemSpecifics?.[aspectName] ||
+                     aiContent?.additionalAttributes?.[aspectName] ||
+                     ''
+          }
+          
+          if (value) {
+            itemSpecifics[aspectName] = value
+          }
+        })
+        
+        // Add recommended aspects if we have data
+        dynamicCategoryData.recommendedAspects.forEach(aspect => {
+          const aspectName = aspect.localizedAspectName
+          if (!itemSpecifics[aspectName]) {
+            const value = aiContent?.itemSpecifics?.[aspectName] ||
+                         aiContent?.additionalAttributes?.[aspectName] ||
+                         ''
+            if (value) {
+              itemSpecifics[aspectName] = value
+            }
+          }
+        })
+        
+      } else {
+        // Fall back to static template logic
       
       if (templateType === 'funko_toys_games_movies') {
         // Map data to Funko category aspects based on the actual template
@@ -417,7 +533,8 @@ export async function POST(request: NextRequest) {
           'Occasion': extractOccasionFromProduct(aiContent) || 'Casual',
           'Features': aiContent?.keyFeatures?.join(', ') || ''
         }
-      }
+      } // End of static template logic
+      } // End of dynamic vs static choice
 
       return {
         title: title.substring(0, 80), // eBay title limit
@@ -434,10 +551,11 @@ export async function POST(request: NextRequest) {
         customLabel: `INV-${product.id}`,
         itemSpecifics
       }
-    })
+    }))
 
-    // Generate CSV content
-    const csvContent = generateEBayCSV(products, templateType, listingData)
+    // Generate CSV content using the appropriate category
+    const effectiveCategoryId = dynamicCategoryData?.categoryId || TEMPLATE_CONFIGS[templateType as keyof typeof TEMPLATE_CONFIGS].category
+    const csvContent = generateEBayCSV(products, templateType, listingData, effectiveCategoryId)
 
     // Return CSV content
     const response = new NextResponse(csvContent)

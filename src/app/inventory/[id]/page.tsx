@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Package, Edit, Save, X, ArrowLeft, Bot, ChevronLeft, ChevronRight, Eye, Trash2, Sparkles, Plus, ShoppingCart } from 'lucide-react'
+import { Package, Edit, Save, X, ArrowLeft, Bot, ChevronLeft, ChevronRight, Eye, Trash2, Sparkles, Plus, ShoppingCart, Download } from 'lucide-react'
 import Link from 'next/link'
 
 interface ProductImage {
@@ -80,6 +80,17 @@ interface EditForm {
   weight?: string
   dimensions?: string
   quantity?: number
+  // Funko Pop fields
+  character?: string
+  series?: string
+  exclusivity?: string
+  releaseDate?: string
+  funkoPop?: boolean
+  // eBay fields
+  mpn?: string
+  material?: string
+  theme?: string
+  ageGroup?: string
   aiContent?: {
     seoTitle?: string
     ebayTitle?: string
@@ -100,6 +111,8 @@ export default function ProductDetailPage() {
   const [imageGallery, setImageGallery] = useState<{ isOpen: boolean; currentIndex: number }>({ isOpen: false, currentIndex: 0 })
   const [aiEnhancing, setAiEnhancing] = useState(false)
   const [activeTab, setActiveTab] = useState<'basic' | 'ai' | 'images' | 'offers' | 'categories'>('basic')
+  const [deletingImageId, setDeletingImageId] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     if (productId) {
@@ -302,6 +315,78 @@ export default function ProductDetailPage() {
     return validPrices.reduce((sum, price) => sum + price, 0) / validPrices.length
   }
 
+  const handleDeleteImage = async (imageId: string, imageNumber: number) => {
+    if (!product) return
+    
+    if (!confirm(`Are you sure you want to delete image #${imageNumber}? This action cannot be undone.`)) {
+      return
+    }
+
+    setDeletingImageId(imageId)
+
+    try {
+      const response = await fetch(`/api/products/${product.id}/images/${imageId}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        await fetchProduct()
+        // Close image gallery if we were viewing the deleted image
+        if (imageGallery.isOpen && product.images[imageGallery.currentIndex]?.id === imageId) {
+          closeImageGallery()
+        }
+        alert('Image deleted successfully')
+      } else {
+        const errorData = await response.json()
+        alert(`Failed to delete image: ${errorData.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error deleting image:', error)
+      alert('Error deleting image')
+    } finally {
+      setDeletingImageId(null)
+    }
+  }
+
+  const handleEbayExport = async () => {
+    if (!product || exporting) return
+
+    setExporting(true)
+
+    try {
+      const response = await fetch('/api/ebay/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productIds: [product.id],
+          templateType: 'funko_toys_games_movies', // Default template
+          useDynamicCategories: true
+        })
+      })
+
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `ebay_export_${product.title?.replace(/[^a-zA-Z0-9]/g, '_') || product.upc}.csv`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+        alert('eBay export completed successfully!')
+      } else {
+        const errorData = await response.json()
+        alert(`Failed to export to eBay: ${errorData.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error exporting to eBay:', error)
+      alert('Error exporting to eBay. Please try again.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -380,6 +465,18 @@ export default function ProductDetailPage() {
                       <Sparkles className="w-4 h-4" />
                     )}
                     <span>{product.aiContent?.status === 'completed' ? 'Regenerate AI' : 'Generate AI Content'}</span>
+                  </button>
+                  <button
+                    onClick={handleEbayExport}
+                    disabled={exporting}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center space-x-2 disabled:opacity-50"
+                  >
+                    {exporting ? (
+                      <div className="w-4 h-4 border border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
+                    <span>Export to eBay</span>
                   </button>
                   <button
                     onClick={handleDelete}
@@ -481,9 +578,6 @@ export default function ProductDetailPage() {
                       (e.target as HTMLImageElement).src = '/placeholder-product.svg'
                     }}
                   />
-                  <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                    <Eye className="w-8 h-8 text-white" />
-                  </div>
                   {product.images.length > 1 && (
                     <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded-full">
                       {product.images.length} photos
@@ -623,6 +717,124 @@ export default function ProductDetailPage() {
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                           min="0"
                         />
+                      </div>
+                    </div>
+
+                    {/* Funko Pop Toggle */}
+                    <div>
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={editForm.funkoPop || false}
+                          onChange={(e) => setEditForm({ ...editForm, funkoPop: e.target.checked })}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium text-gray-700">This is a Funko Pop product</span>
+                      </label>
+                    </div>
+
+                    {/* Funko Pop Fields */}
+                    {editForm.funkoPop && (
+                      <div className="border border-purple-200 rounded-lg p-4 bg-purple-50">
+                        <h4 className="text-sm font-semibold text-purple-800 mb-3">Funko Pop Details</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Character</label>
+                            <input
+                              type="text"
+                              value={editForm.character || ''}
+                              onChange={(e) => setEditForm({ ...editForm, character: e.target.value })}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                              placeholder="e.g., Batman, Spider-Man"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Series</label>
+                            <input
+                              type="text"
+                              value={editForm.series || ''}
+                              onChange={(e) => setEditForm({ ...editForm, series: e.target.value })}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                              placeholder="e.g., DC Comics, Marvel"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Exclusivity</label>
+                            <select
+                              value={editForm.exclusivity || ''}
+                              onChange={(e) => setEditForm({ ...editForm, exclusivity: e.target.value })}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                            >
+                              <option value="">Select exclusivity</option>
+                              <option value="Common">Common</option>
+                              <option value="Exclusive">Exclusive</option>
+                              <option value="Limited Edition">Limited Edition</option>
+                              <option value="Convention Exclusive">Convention Exclusive</option>
+                              <option value="Chase">Chase</option>
+                              <option value="Vaulted">Vaulted</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Release Date</label>
+                            <input
+                              type="text"
+                              value={editForm.releaseDate || ''}
+                              onChange={(e) => setEditForm({ ...editForm, releaseDate: e.target.value })}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                              placeholder="e.g., 2023, Q1 2024"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Additional eBay Fields */}
+                    <div className="border border-blue-200 rounded-lg p-4 bg-blue-50">
+                      <h4 className="text-sm font-semibold text-blue-800 mb-3">eBay Listing Fields</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">MPN (Manufacturer Part Number)</label>
+                          <input
+                            type="text"
+                            value={editForm.mpn || ''}
+                            onChange={(e) => setEditForm({ ...editForm, mpn: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Material</label>
+                          <input
+                            type="text"
+                            value={editForm.material || ''}
+                            onChange={(e) => setEditForm({ ...editForm, material: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="e.g., Vinyl, Plastic"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Theme</label>
+                          <input
+                            type="text"
+                            value={editForm.theme || ''}
+                            onChange={(e) => setEditForm({ ...editForm, theme: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="e.g., Movies, Comics, TV Shows"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Age Group</label>
+                          <select
+                            value={editForm.ageGroup || ''}
+                            onChange={(e) => setEditForm({ ...editForm, ageGroup: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value="">Select age group</option>
+                            <option value="3+">3+ years</option>
+                            <option value="8+">8+ years</option>
+                            <option value="13+">13+ years</option>
+                            <option value="Adult">Adult (18+)</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
 
@@ -938,10 +1150,23 @@ export default function ProductDetailPage() {
                     <div className="absolute top-2 left-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
                       #{image.imageNumber}
                     </div>
-                    {/* TODO: Add delete button */}
-                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100">
-                      <Eye className="w-6 h-6 text-white" />
-                    </div>
+                    {/* Delete button - higher z-index to appear above overlay */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteImage(image.id, image.imageNumber)
+                      }}
+                      disabled={deletingImageId === image.id}
+                      className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50 z-20"
+                      title="Delete image"
+                    >
+                      {deletingImageId === image.id ? (
+                        <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3 h-3" />
+                      )}
+                    </button>
+                    {/* Removed problematic overlay */}
                   </div>
                 ))}
               </div>

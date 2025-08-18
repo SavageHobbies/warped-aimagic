@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Package, Scan, CheckCircle, XCircle, Clock, List, Trash2 } from 'lucide-react'
 import Link from 'next/link'
+import ThemeToggle from '@/components/ThemeToggle'
 
 interface ScannedItem {
   id: string
@@ -202,19 +203,20 @@ export default function BarcodeScanner() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <Package className="w-8 h-8 text-blue-600" />
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Barcode Scanner</h1>
-                <p className="text-gray-600">Scan barcodes to automatically add products to inventory</p>
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Barcode Scanner</h1>
+                <p className="text-gray-600 dark:text-gray-300">Scan barcodes to automatically add products to inventory</p>
               </div>
             </div>
             <div className="flex space-x-4">
+              <ThemeToggle />
               <Link
                 href="/inventory"
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center space-x-2"
@@ -229,15 +231,15 @@ export default function BarcodeScanner() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Scanning Interface */}
           <div>
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center">
                 <Scan className="w-5 h-5 mr-2" />
                 Scan Product
               </h2>
               
               <form onSubmit={handleBarcodeSubmit} className="space-y-4">
                 <div>
-                  <label htmlFor="barcode" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="barcode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Barcode/UPC
                   </label>
                   <input
@@ -247,7 +249,7 @@ export default function BarcodeScanner() {
                     value={barcodeInput}
                     onChange={(e) => setBarcodeInput(e.target.value)}
                     placeholder="Scan or enter barcode..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
                     disabled={isProcessing}
                   />
                 </div>
@@ -272,9 +274,9 @@ export default function BarcodeScanner() {
               </form>
 
               {/* Stats */}
-              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                <h3 className="font-medium text-gray-900 mb-2">Session Stats</h3>
-                <div className="space-y-2 text-sm">
+              <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Session Stats</h3>
+                <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
                   <div className="flex justify-between">
                     <span>Products Scanned:</span>
                     <span className="font-medium">{totalScanned}</span>
@@ -288,7 +290,7 @@ export default function BarcodeScanner() {
                 {recentlyScanned.length > 0 && (
                   <button
                     onClick={clearRecentScans}
-                    className="w-full mt-3 px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 flex items-center justify-center space-x-2"
+                    className="w-full mt-3 px-3 py-2 text-sm bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-500 flex items-center justify-center space-x-2"
                   >
                     <Trash2 className="w-4 h-4" />
                     <span>Clear Recent Scans</span>
@@ -300,11 +302,11 @@ export default function BarcodeScanner() {
 
           {/* Recent Scans */}
           <div>
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Scans</h2>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Recent Scans</h2>
               
               {recentlyScanned.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                   <Package className="w-12 h-12 mx-auto mb-4 text-gray-400" />
                   <p>No recent scans</p>
                   <p className="text-sm">Start scanning barcodes to see them here</p>
@@ -314,25 +316,25 @@ export default function BarcodeScanner() {
                   {recentlyScanned.map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg"
+                      className="flex items-start space-x-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
                     >
                       <div className="flex-shrink-0 mt-1">
                         {getStatusIcon(item.status)}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate">
+                        <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
                           {item.title || `UPC: ${item.upc}`}
                         </p>
                         {item.brand && (
-                          <p className="text-sm text-gray-600">{item.brand}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">{item.brand}</p>
                         )}
-                        <p className="text-sm text-gray-500">{item.message}</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{item.message}</p>
                         <div className="flex items-center justify-between mt-1">
-                          <p className="text-xs text-gray-400">
+                          <p className="text-xs text-gray-400 dark:text-gray-500">
                             {new Date(item.scannedAt).toLocaleTimeString()}
                           </p>
                           {item.totalQuantity && (
-                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                            <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
                               Qty: {item.totalQuantity}
                             </span>
                           )}

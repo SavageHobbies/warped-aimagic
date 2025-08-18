@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import QueryClientProvider from '@/components/QueryClientProvider'
+import { ThemeProvider } from '@/contexts/ThemeContext'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,11 +27,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors`}
       >
-        <QueryClientProvider>
-          {children}
-        </QueryClientProvider>
+        <ThemeProvider>
+          <QueryClientProvider>
+            {children}
+          </QueryClientProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
