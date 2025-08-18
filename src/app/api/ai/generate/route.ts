@@ -1,0 +1,265 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { geminiService, type ProductData } from '@/lib/gemini'
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { productIds, regenerate = false } = body
+
+    if (!productIds || !Array.isArray(productIds)) {
+      return NextResponse.json(
+        { error: 'productIds array is required' },
+        { status: 400 }
+      )
+    }
+
+    const results = []
+
+    for (const productId of productIds) {
+      try {
+        // Check if AI content already exists and regenerate flag
+        const existingContent = await prisma.aIContent.findUnique({
+          where: { productId }
+        })
+
+        if (existingContent && !regenerate) {
+          results.push({
+            productId,
+            status: 'skipped',
+            message: 'AI content already exists',
+            content: existingContent
+          })
+          continue
+        }
+
+        // Fetch product with all related data
+        const product = await prisma.product.findUnique({
+          where: { id: productId },
+          include: {
+            images: true,
+            offers: {
+              orderBy: { price: 'asc' }
+            },
+            categories: {
+              include: { category: true }
+            }
+          }
+        })
+
+        if (!product) {
+          results.push({
+            productId,
+            status: 'error',
+            message: 'Product not found'
+          })
+          continue
+        }
+
+        // Mark as processing
+        await prisma.aIContent.upsert({
+          where: { productId },
+          create: {
+            productId,
+            status: 'processing'
+          },
+          update: {
+            status: 'processing'
+          }
+        })
+
+        // Prepare product data for Gemini
+        const productData: ProductData = {
+          upc: product.upc,
+          title: product.title || undefined,
+          description: product.description || undefined,
+          brand: product.brand || undefined,
+          category: product.categories[0]?.category.fullPath || undefined,
+          color: product.color || undefined,
+          size: product.size || undefined,
+          weight: product.weight || undefined,
+          lowestPrice: product.lowestRecordedPrice || undefined,
+          highestPrice: product.highestRecordedPrice || undefined,
+          offers: product.offers.map(offer => ({
+            merchant: offer.merchant,
+            price: offer.price || undefined,
+            condition: offer.condition || undefined
+          })),
+          images: product.images.map(img => img.originalUrl).filter(Boolean) as string[]
+        }
+
+        // Generate AI content
+        const startTime = Date.now()
+        const aiContent = await geminiService.generateProductContent(productData)
+        const processingTime = Date.now() - startTime
+        
+        const modelInfo = geminiService.getModelInfo()
+
+        // Save AI content to database
+        const savedContent = await prisma.aIContent.upsert({
+          where: { productId },
+          create: {
+            productId,
+            seoTitle: aiContent.seoTitle,
+            seoDescription: aiContent.shortDescription, // Use shortDescription
+            productDescription: aiContent.productDescription,
+            bulletPoints: JSON.stringify(aiContent.keyFeatures || []), // Use keyFeatures for bulletPoints
+            tags: JSON.stringify(aiContent.tags || []),
+            category: productData.category || 'General',
+            specifications: JSON.stringify(aiContent.itemSpecifics || {}), // Use itemSpecifics for specifications
+            marketingCopy: `eBay Title: ${aiContent.ebayTitle}\n\nUnique Selling Points:\n${(aiContent.uniqueSellingPoints || []).join('\n')}`,
+            // New eBay-focused fields
+            ebayTitle: aiContent.ebayTitle,
+            shortDescription: aiContent.shortDescription,
+            uniqueSellingPoints: JSON.stringify(aiContent.uniqueSellingPoints || []),
+            keyFeatures: JSON.stringify(aiContent.keyFeatures || []),
+            specificationsArray: JSON.stringify(aiContent.specifications || []),
+            itemSpecifics: JSON.stringify(aiContent.itemSpecifics || {}),
+            additionalAttributes: JSON.stringify(aiContent.additionalAttributes || {}),
+            status: 'completed',
+            aiModel: modelInfo.configured ? modelInfo.primary : 'mock',
+            generatedAt: new Date(),
+            processingTime
+          },
+          update: {
+            seoTitle: aiContent.seoTitle,
+            seoDescription: aiContent.shortDescription,
+            productDescription: aiContent.productDescription,
+            bulletPoints: JSON.stringify(aiContent.keyFeatures || []),
+            tags: JSON.stringify(aiContent.tags || []),
+            category: productData.category || 'General',
+            specifications: JSON.stringify(aiContent.itemSpecifics || {}),
+            marketingCopy: `eBay Title: ${aiContent.ebayTitle}\n\nUnique Selling Points:\n${(aiContent.uniqueSellingPoints || []).join('\n')}`,
+            // New eBay-focused fields
+            ebayTitle: aiContent.ebayTitle,
+            shortDescription: aiContent.shortDescription,
+            uniqueSellingPoints: JSON.stringify(aiContent.uniqueSellingPoints || []),
+            keyFeatures: JSON.stringify(aiContent.keyFeatures || []),
+            specificationsArray: JSON.stringify(aiContent.specifications || []),
+            itemSpecifics: JSON.stringify(aiContent.itemSpecifics || {}),
+            additionalAttributes: JSON.stringify(aiContent.additionalAttributes || {}),
+            status: 'completed',
+            aiModel: modelInfo.configured ? modelInfo.primary : 'mock',
+            generatedAt: new Date(),
+            processingTime,
+            updatedAt: new Date()
+          }
+        })
+
+        // Log the API call
+        await prisma.apiLog.create({
+          data: {
+            service: 'gemini',
+            endpoint: modelInfo.configured ? '/generateContent' : 'mock',
+            method: 'POST',
+            statusCode: 200,
+            requestData: JSON.stringify({
+              model: modelInfo.primary,
+              productUpc: product.upc
+            }),
+            responseData: JSON.stringify({
+              ebayTitle: aiContent.ebayTitle,
+              seoTitle: aiContent.seoTitle,
+              shortDescription: aiContent.shortDescription?.substring(0, 100) + '...',
+              keyFeaturesCount: aiContent.keyFeatures?.length || 0,
+              tagsCount: aiContent.tags?.length || 0,
+              uniqueSellingPointsCount: aiContent.uniqueSellingPoints?.length || 0
+            }),
+            duration: processingTime
+          }
+        })
+
+        results.push({
+          productId,
+          status: 'completed',
+          content: savedContent,
+          processingTime
+        })
+
+        // Add delay between requests to respect rate limits
+        if (productIds.length > 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+
+      } catch (error) {
+        console.error(`Error processing product ${productId}:`, error)
+        
+        // Mark as failed
+        await prisma.aIContent.upsert({
+          where: { productId },
+          create: {
+            productId,
+            status: 'failed'
+          },
+          update: {
+            status: 'failed',
+            updatedAt: new Date()
+          }
+        })
+
+        results.push({
+          productId,
+          status: 'error',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        })
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      results,
+      summary: {
+        total: productIds.length,
+        completed: results.filter(r => r.status === 'completed').length,
+        errors: results.filter(r => r.status === 'error').length,
+        skipped: results.filter(r => r.status === 'skipped').length
+      }
+    })
+
+  } catch (error) {
+    console.error('Error in AI generation endpoint:', error)
+    return NextResponse.json(
+      { error: 'Failed to generate AI content' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function GET() {
+  try {
+    // Get AI generation status summary
+    const products = await prisma.product.findMany({
+      include: {
+        aiContent: true
+      }
+    })
+
+    const summary = {
+      total: products.length,
+      withAiContent: products.filter(p => p.aiContent).length,
+      pending: products.filter(p => p.aiContent?.status === 'pending').length,
+      processing: products.filter(p => p.aiContent?.status === 'processing').length,
+      completed: products.filter(p => p.aiContent?.status === 'completed').length,
+      failed: products.filter(p => p.aiContent?.status === 'failed').length,
+      noContent: products.filter(p => !p.aiContent).length
+    }
+
+    const modelInfo = geminiService.getModelInfo()
+
+    return NextResponse.json({
+      summary,
+      geminiConfig: {
+        configured: modelInfo.configured,
+        primaryModel: modelInfo.primary,
+        fallbackModel: modelInfo.fallback
+      }
+    })
+
+  } catch (error) {
+    console.error('Error fetching AI generation status:', error)
+    return NextResponse.json(
+      { error: 'Failed to fetch AI generation status' },
+      { status: 500 }
+    )
+  }
+}
