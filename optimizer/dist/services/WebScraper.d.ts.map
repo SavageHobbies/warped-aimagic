@@ -1,0 +1,1 @@
+{"version":3,"file":"WebScraper.d.ts","sourceRoot":"","sources":["../../src/services/WebScraper.ts"],"names":[],"mappings":"AAEA,OAAO,EAAE,cAAc,EAAE,MAAM,WAAW,CAAC;AAG3C,qBAAa,UAAU;IACrB,OAAO,CAAC,QAAQ,CAAC,OAAO,CAAS;IAE3B,SAAS,CAAC,GAAG,EAAE,MAAM,GAAG,OAAO,CAAC,cAAc,CAAC;CA6DtD"}

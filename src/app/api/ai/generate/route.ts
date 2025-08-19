@@ -4,26 +4,36 @@ import { geminiService, type ProductData } from '@/lib/gemini'
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('AI Generation API: Starting AI content generation...')
     const body = await request.json()
+    console.log('AI Generation API: Request body:', JSON.stringify(body, null, 2))
     const { productIds, regenerate = false } = body
 
     if (!productIds || !Array.isArray(productIds)) {
+      console.error('AI Generation API: Invalid productIds:', productIds)
       return NextResponse.json(
         { error: 'productIds array is required' },
         { status: 400 }
       )
     }
+    
+    console.log('AI Generation API: Processing', productIds.length, 'products, regenerate:', regenerate)
 
     const results = []
 
     for (const productId of productIds) {
       try {
+        console.log('AI Generation API: Processing product:', productId)
+        
         // Check if AI content already exists and regenerate flag
         const existingContent = await prisma.aIContent.findUnique({
           where: { productId }
         })
+        
+        console.log('AI Generation API: Existing content status:', existingContent?.status || 'No existing content')
 
         if (existingContent && !regenerate) {
+          console.log('AI Generation API: Skipping product (content exists, regenerate=false):', productId)
           results.push({
             productId,
             status: 'skipped',
@@ -48,6 +58,7 @@ export async function POST(request: NextRequest) {
         })
 
         if (!product) {
+          console.error('AI Generation API: Product not found:', productId)
           results.push({
             productId,
             status: 'error',
@@ -55,6 +66,8 @@ export async function POST(request: NextRequest) {
           })
           continue
         }
+        
+        console.log('AI Generation API: Found product:', product.title || product.upc)
 
         // Mark as processing
         await prisma.aIContent.upsert({
@@ -77,7 +90,7 @@ export async function POST(request: NextRequest) {
           category: product.categories[0]?.category.fullPath || undefined,
           color: product.color || undefined,
           size: product.size || undefined,
-          weight: product.weight || undefined,
+          weight: product.weight ? `${product.weight}${product.weightUnit || 'g'}` : undefined,
           lowestPrice: product.lowestRecordedPrice || undefined,
           highestPrice: product.highestRecordedPrice || undefined,
           offers: product.offers.map(offer => ({
@@ -89,11 +102,18 @@ export async function POST(request: NextRequest) {
         }
 
         // Generate AI content
+        console.log('AI Generation API: Calling Gemini service for product:', productId)
+        console.log('AI Generation API: Product data:', JSON.stringify(productData, null, 2))
+        
         const startTime = Date.now()
         const aiContent = await geminiService.generateProductContent(productData)
         const processingTime = Date.now() - startTime
         
+        console.log('AI Generation API: Generated content:', JSON.stringify(aiContent, null, 2))
+        console.log('AI Generation API: Processing time:', processingTime, 'ms')
+        
         const modelInfo = geminiService.getModelInfo()
+        console.log('AI Generation API: Model info:', modelInfo)
 
         // Save AI content to database
         const savedContent = await prisma.aIContent.upsert({

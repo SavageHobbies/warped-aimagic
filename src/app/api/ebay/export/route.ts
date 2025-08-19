@@ -330,15 +330,23 @@ function generateEBayCSV(products: any[], templateType: string, listingData: EBa
 
 export async function POST(request: NextRequest) {
   try {
-    const { productIds, templateType, useDynamicCategories = false } = await request.json()
+    console.log('eBay Export API: Starting export process...')
+    const requestBody = await request.json()
+    console.log('eBay Export API: Request body:', JSON.stringify(requestBody, null, 2))
+    
+    const { productIds, templateType, useDynamicCategories = false } = requestBody
 
     if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+      console.error('eBay Export API: No products selected')
       return NextResponse.json({ error: 'No products selected' }, { status: 400 })
     }
 
     if (!templateType || !TEMPLATE_CONFIGS[templateType as keyof typeof TEMPLATE_CONFIGS]) {
+      console.error('eBay Export API: Invalid template type:', templateType)
       return NextResponse.json({ error: 'Invalid template type' }, { status: 400 })
     }
+    
+    console.log('eBay Export API: Processing', productIds.length, 'products with template:', templateType)
 
     // Fetch products from database
     const products = await prisma.product.findMany({
@@ -355,8 +363,11 @@ export async function POST(request: NextRequest) {
     })
 
     if (products.length === 0) {
+      console.error('eBay Export API: No products found in database for IDs:', productIds)
       return NextResponse.json({ error: 'No products found' }, { status: 404 })
     }
+    
+    console.log('eBay Export API: Found', products.length, 'products in database')
 
     // If eBay API is configured and user wants dynamic categories, analyze products
     let dynamicCategoryData = null
@@ -391,7 +402,9 @@ export async function POST(request: NextRequest) {
 
     // Convert products to eBay listing format
     const listingData: EBayListingData[] = await Promise.all(products.map(async product => {
+      console.log('eBay Export API: Processing product:', product.id, 'UPC:', product.upc)
       const aiContent = Array.isArray(product.aiContent) ? product.aiContent[0] as any : product.aiContent as any || null // eslint-disable-line @typescript-eslint/no-explicit-any
+      console.log('eBay Export API: AI content status:', aiContent?.status || 'No AI content')
       const lowestOffer = product.offers?.[0] || null
       
       // Use AI content if available, fallback to basic product data
@@ -490,19 +503,38 @@ export async function POST(request: NextRequest) {
         // Fall back to static template logic
       
       if (templateType === 'funko_toys_games_movies') {
+        console.log('eBay Export API: Processing Funko template for product:', product.id)
+        
+        // Parse AI content fields that are stored as JSON strings
+        const uniqueSellingPoints = aiContent?.uniqueSellingPoints ? 
+          (typeof aiContent.uniqueSellingPoints === 'string' ? 
+            JSON.parse(aiContent.uniqueSellingPoints) : aiContent.uniqueSellingPoints) : []
+        const keyFeatures = aiContent?.keyFeatures ? 
+          (typeof aiContent.keyFeatures === 'string' ? 
+            JSON.parse(aiContent.keyFeatures) : aiContent.keyFeatures) : []
+            
+        console.log('eBay Export API: Parsed uniqueSellingPoints:', uniqueSellingPoints)
+        console.log('eBay Export API: Parsed keyFeatures:', keyFeatures)
+        
         // Map data to Funko category aspects based on the actual template
         itemSpecifics = {
           'Type': 'Pop! Vinyl',
           'Brand': 'Funko',
-          'Exclusive Event/Retailer': aiContent?.uniqueSellingPoints?.find((p: string) => p.toLowerCase().includes('exclusive'))?.replace(/exclusive/i, '').trim() || '',
-          'Franchise': aiContent?.keyFeatures?.find((f: string) => f.toLowerCase().includes('franchise'))?.split(':')[1]?.trim() || 
-                      aiContent?.keyFeatures?.find((f: string) => f.toLowerCase().includes('series'))?.split(':')[1]?.trim() || '',
-          'Character': aiContent?.keyFeatures?.find((f: string) => f.toLowerCase().includes('character'))?.split(':')[1]?.trim() || 
-                      extractCharacterFromTitle(title) || '',
-          'Theme': aiContent?.keyFeatures?.find((f: string) => f.toLowerCase().includes('theme'))?.split(':')[1]?.trim() || '',
-          'TV/Streaming Show': aiContent?.keyFeatures?.find((f: string) => f.toLowerCase().includes('show'))?.split(':')[1]?.trim() || '',
-          'Movie': aiContent?.keyFeatures?.find((f: string) => f.toLowerCase().includes('movie'))?.split(':')[1]?.trim() || '',
-          'Features': aiContent?.keyFeatures?.join(', ') || '',
+          'Exclusive Event/Retailer': Array.isArray(uniqueSellingPoints) ? 
+            uniqueSellingPoints.find((p: string) => p.toLowerCase().includes('exclusive'))?.replace(/exclusive/i, '').trim() || '' : '',
+          'Franchise': Array.isArray(keyFeatures) ? 
+            keyFeatures.find((f: string) => f.toLowerCase().includes('franchise'))?.split(':')[1]?.trim() || 
+            keyFeatures.find((f: string) => f.toLowerCase().includes('series'))?.split(':')[1]?.trim() || '' : '',
+          'Character': Array.isArray(keyFeatures) ? 
+            keyFeatures.find((f: string) => f.toLowerCase().includes('character'))?.split(':')[1]?.trim() || 
+            extractCharacterFromTitle(title) || '' : extractCharacterFromTitle(title) || '',
+          'Theme': Array.isArray(keyFeatures) ? 
+            keyFeatures.find((f: string) => f.toLowerCase().includes('theme'))?.split(':')[1]?.trim() || '' : '',
+          'TV/Streaming Show': Array.isArray(keyFeatures) ? 
+            keyFeatures.find((f: string) => f.toLowerCase().includes('show'))?.split(':')[1]?.trim() || '' : '',
+          'Movie': Array.isArray(keyFeatures) ? 
+            keyFeatures.find((f: string) => f.toLowerCase().includes('movie'))?.split(':')[1]?.trim() || '' : '',
+          'Features': Array.isArray(keyFeatures) ? keyFeatures.join(', ') || '' : '',
           'Age Level': '8+',
           'Size': 'Standard',
           'Material': 'Vinyl',
@@ -555,20 +587,26 @@ export async function POST(request: NextRequest) {
 
     // Generate CSV content using the appropriate category
     const effectiveCategoryId = dynamicCategoryData?.categoryId || TEMPLATE_CONFIGS[templateType as keyof typeof TEMPLATE_CONFIGS].category
+    console.log('eBay Export API: Using category ID:', effectiveCategoryId)
+    
     const csvContent = generateEBayCSV(products, templateType, listingData, effectiveCategoryId)
+    console.log('eBay Export API: Generated CSV with', csvContent.split('\n').length - 1, 'rows')
 
     // Return CSV content
     const response = new NextResponse(csvContent)
     response.headers.set('Content-Type', 'text/csv')
     response.headers.set('Content-Disposition', `attachment; filename="ebay_listings_${templateType}_${Date.now()}.csv"`)
     
+    console.log('eBay Export API: Export completed successfully')
     return response
 
   } catch (error) {
-    console.error('Error generating eBay export:', error)
+    console.error('eBay Export API: Error generating eBay export:', error)
+    console.error('eBay Export API: Error stack:', error instanceof Error ? error.stack : 'No stack trace')
     return NextResponse.json({ 
       error: 'Failed to generate eBay export',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     }, { status: 500 })
   } finally {
     await prisma.$disconnect()

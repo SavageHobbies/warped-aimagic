@@ -77,8 +77,21 @@ class EbayService {
     this.certId = process.env.EBAY_CERT_ID || ''
     this.environment = (process.env.EBAY_ENVIRONMENT as 'sandbox' | 'production') || 'sandbox'
     
+    console.log('eBay Service: Initializing...')
+    console.log('eBay Service: Environment:', this.environment)
+    console.log('eBay Service: App ID present:', this.appId ? 'YES' : 'NO')
+    console.log('eBay Service: Dev ID present:', this.devId ? 'YES' : 'NO')
+    console.log('eBay Service: Cert ID present:', this.certId ? 'YES' : 'NO')
+    
     if (!this.appId || !this.devId || !this.certId) {
-      console.warn('eBay API credentials not configured. eBay features will be limited.')
+      console.error('eBay API credentials not configured properly!')
+      console.error('Missing credentials:', {
+        appId: !this.appId,
+        devId: !this.devId,
+        certId: !this.certId
+      })
+    } else {
+      console.log('eBay Service: All credentials present, service ready')
     }
   }
 

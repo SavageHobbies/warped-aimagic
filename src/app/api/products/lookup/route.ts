@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'UPC is required' }, { status: 400 })
     }
 
-    // First, check if product already exists in database
+    // ALWAYS check database first to avoid unnecessary API calls
     const existingProduct = await prisma.product.findUnique({
       where: { upc },
       include: {
@@ -26,17 +26,21 @@ export async function POST(request: NextRequest) {
     })
 
     if (existingProduct) {
-      console.log(`Product found in database for UPC: ${upc}`)
+      console.log(`✅ Product FOUND in database for UPC: ${upc}`)
+      console.log(`   Current quantity: ${existingProduct.quantity}`)
       
-      // Update lastScanned timestamp and add to inventory if requested
-      const updateData: { lastScanned: Date; quantity?: number } = { lastScanned: new Date() }
-      if (addToInventory && quantity > 0) {
-        updateData.quantity = existingProduct.quantity + quantity
-      }
+      // Always increment quantity when scanning existing products
+      const incrementAmount = quantity > 0 ? quantity : 1  // Default to 1 if not specified
+      const newQuantity = existingProduct.quantity + incrementAmount
+      
+      console.log(`   Adding ${incrementAmount} unit(s), new quantity will be: ${newQuantity}`)
       
       const updatedProduct = await prisma.product.update({
         where: { id: existingProduct.id },
-        data: updateData,
+        data: {
+          lastScanned: new Date(),
+          quantity: newQuantity
+        },
         include: {
           images: true,
           offers: true,
@@ -48,17 +52,20 @@ export async function POST(request: NextRequest) {
         }
       })
 
+      console.log(`   ✅ Updated quantity to: ${updatedProduct.quantity}`)
+
       return NextResponse.json({
         source: 'database',
+        message: `Product already exists. Added ${incrementAmount} unit(s). Total quantity: ${updatedProduct.quantity}`,
+        previousQuantity: existingProduct.quantity,
+        quantityAdded: incrementAmount,
         ...updatedProduct
       })
     }
 
-    // Product not in database, lookup from API
-    console.log(`Looking up product from API for UPC: ${upc}`)
-    
-    // ALWAYS use real API - no mock data
-    console.log(`CALLING REAL UPCItemDB API for UPC: ${upc}`)
+    // Product NOT in database, need to lookup from API
+    console.log(`❌ Product NOT found in database for UPC: ${upc}`)
+    console.log(`📡 Making API call to UPCItemDB for product details...`)
     const apiResponse = await upcItemDB.lookupProduct(upc)
     console.log(`Real API Response:`, apiResponse)
 
@@ -83,9 +90,11 @@ export async function POST(request: NextRequest) {
         model: item.model,
         color: item.color,
         size: item.size,
-        dimensions: item.dimension,
-        weight: item.weight,
-        quantity: addToInventory && quantity > 0 ? quantity : 1, // Default to 1 when scanned
+        dimensions: item.dimension && typeof item.dimension === 'object' 
+          ? { length: 0, width: 0, height: 0, ...(item.dimension as Record<string, any>) } 
+          : undefined,
+        weight: item.weight ? parseFloat(item.weight) : null,
+        quantity: quantity > 0 ? quantity : 1, // Default to 1 when first scanned
         currency: item.currency || 'USD',
         lowestRecordedPrice: item.lowest_recorded_price ? parseFloat(item.lowest_recorded_price) : null,
         highestRecordedPrice: item.highest_recorded_price ? parseFloat(item.highest_recorded_price) : null,

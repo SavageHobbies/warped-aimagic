@@ -1,100 +1,48 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { Package, Edit, Save, X, ArrowLeft, Bot, ChevronLeft, ChevronRight, Eye, Download, ShoppingCart, Trash2, Sparkles } from 'lucide-react'
-import Link from 'next/link'
-
-interface ProductImage {
-  id: string
-  originalUrl: string
-  localPath?: string
-  imageNumber: number
-}
-
-interface Offer {
-  id: string
-  merchant: string
-  price?: number
-  listPrice?: number
-  currency: string
-  condition?: string
-  availability?: string
-  link?: string
-}
-
-interface Category {
-  id: string
-  name: string
-  fullPath?: string
-}
-
-interface AIContent {
-  id: string
-  productId: string
-  status: 'pending' | 'processing' | 'completed' | 'failed'
-  seoTitle?: string
-  ebayTitle?: string
-  shortDescription?: string
-  productDescription?: string
-  aiModel?: string
-  generatedAt?: string
-}
+import { useRouter } from 'next/navigation'
+import MainLayout from '@/components/MainLayout'
+import Button from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { 
+  Package, Plus, Search, Filter, Edit, Trash2, Eye, 
+  Upload, BarChart, DollarSign, AlertCircle, CheckCircle,
+  ShoppingCart, Send, FileText, Image as ImageIcon,
+  Download, X, ChevronDown, FileSpreadsheet
+} from 'lucide-react'
 
 interface Product {
   id: string
   upc: string
-  ean?: string
-  title?: string
-  description?: string
+  title: string
   brand?: string
-  model?: string
-  color?: string
-  size?: string
-  weight?: string
+  condition: string
   quantity: number
-  currency?: string
+  price?: number
   lowestRecordedPrice?: number
   highestRecordedPrice?: number
-  lastScanned?: string
-  images: ProductImage[]
-  offers: Offer[]
-  categories: { category: Category }[]
-  aiContent?: AIContent
-}
-
-interface EditForm {
-  title?: string
-  description?: string
-  brand?: string
-  model?: string
-  color?: string
-  size?: string
-  weight?: string
-  quantity?: number
-  aiContent?: {
-    seoTitle?: string
-    ebayTitle?: string
-    shortDescription?: string
-    productDescription?: string
-  }
+  images?: Array<{ originalUrl?: string }>
+  listingDrafts?: Array<{ id: string; status: string }>
 }
 
 export default function InventoryPage() {
+  const router = useRouter()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
-  const [editingProduct, setEditingProduct] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<EditForm>({})
-  const [imageGallery, setImageGallery] = useState<{ isOpen: boolean; product: Product | null; currentIndex: number }>({ isOpen: false, product: null, currentIndex: 0 })
-  const [detailView, setDetailView] = useState<{ isOpen: boolean; product: Product | null }>({ isOpen: false, product: null })
-  
-  // eBay Export State
+  const [searchTerm, setSearchTerm] = useState('')
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set())
-  const [showEBayExport, setShowEBayExport] = useState(false)
-  const [exportLoading, setExportLoading] = useState(false)
-  const [availableTemplates, setAvailableTemplates] = useState<any[]>([]) // eslint-disable-line @typescript-eslint/no-explicit-any
-  
-  // AI Enhancement State
-  const [aiEnhancing, setAiEnhancing] = useState<Set<string>>(new Set())
+  const [filterCondition, setFilterCondition] = useState('all')
+  const [sortBy, setSortBy] = useState('updated')
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [exportFormat, setExportFormat] = useState<'cpi' | 'baselinker' | 'ebay'>('cpi')
+  const [exportScope, setExportScope] = useState<'selected' | 'filtered'>('filtered')
+  const [exportOptions, setExportOptions] = useState({
+    currency: 'USD',
+    delimiter: ',',
+    excelFriendly: true
+  })
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     fetchInventory()
@@ -114,1170 +62,645 @@ export default function InventoryPage() {
     }
   }
 
-  const handleEdit = (product: Product) => {
-    setEditingProduct(product.id)
-    setEditForm({
-      title: product.title || '',
-      description: product.description || '',
-      brand: product.brand || '',
-      model: product.model || '',
-      color: product.color || '',
-      size: product.size || '',
-      weight: product.weight || '',
-      quantity: product.quantity,
-      aiContent: product.aiContent ? {
-        seoTitle: product.aiContent.seoTitle || '',
-        ebayTitle: product.aiContent.ebayTitle || '',
-        shortDescription: product.aiContent.shortDescription || '',
-        productDescription: product.aiContent.productDescription || ''
-      } : undefined
-    })
+  const handleSelectAll = () => {
+    if (selectedProducts.size === products.length) {
+      setSelectedProducts(new Set())
+    } else {
+      setSelectedProducts(new Set(products.map(p => p.id)))
+    }
   }
 
-  const handleSave = async () => {
-    if (!editingProduct) return
-
-    // Basic validation
-    if (editForm.quantity !== undefined && editForm.quantity < 0) {
-      alert('Quantity cannot be negative')
-      return
+  const handleSelect = (id: string) => {
+    const newSelected = new Set(selectedProducts)
+    if (newSelected.has(id)) {
+      newSelected.delete(id)
+    } else {
+      newSelected.add(id)
     }
+    setSelectedProducts(newSelected)
+  }
 
-    // Validate AI content fields if they exist
-    if (editForm.aiContent) {
-      const { seoTitle, ebayTitle, shortDescription, productDescription } = editForm.aiContent
-      
-      // Check title length limits (eBay has 80 character limit)
-      if (ebayTitle && ebayTitle.length > 80) {
-        alert('eBay title cannot exceed 80 characters')
-        return
-      }
-      
-      if (seoTitle && seoTitle.length > 150) {
-        alert('SEO title should be under 150 characters for optimal SEO')
-        return
-      }
-      
-      if (shortDescription && shortDescription.length > 500) {
-        alert('Short description should be under 500 characters')
-        return
-      }
-      
-      if (productDescription && productDescription.length > 10000) {
-        alert('Product description should be under 10,000 characters')
-        return
-      }
-    }
+  const filteredProducts = products.filter(product => {
+    const matchesSearch = product.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         product.upc?.includes(searchTerm) ||
+                         product.brand?.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesCondition = filterCondition === 'all' || product.condition === filterCondition
+    return matchesSearch && matchesCondition
+  })
 
+  const bulkCreateDrafts = async () => {
+    // Create eBay drafts for selected products
+    console.log('Creating drafts for:', selectedProducts)
+  }
+
+  const handleExport = async () => {
+    if (exporting) return
+    
+    setExporting(true)
     try {
-      const response = await fetch(`/api/products/${editingProduct}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm)
-      })
-
-      if (response.ok) {
-        await fetchInventory() // Refresh the data
-        setEditingProduct(null)
-        setEditForm({})
+      // Prepare the request body
+      const requestBody: any = {
+        format: exportFormat,
+        options: exportOptions
+      }
+      
+      // Set selection based on scope
+      if (exportScope === 'selected' && selectedProducts.size > 0) {
+        requestBody.selection = {
+          ids: Array.from(selectedProducts)
+        }
       } else {
-        const errorData = await response.json()
-        alert(`Failed to update product: ${errorData.error || 'Unknown error'}`)
+        // Export filtered products
+        const filters: any = {}
+        if (searchTerm) filters.search = searchTerm
+        if (filterCondition !== 'all') filters.condition = filterCondition
+        
+        requestBody.selection = { filters }
       }
-    } catch (error) {
-      console.error('Error updating product:', error)
-      alert('Error updating product. Please check your connection and try again.')
-    }
-  }
-
-  const handleCancel = () => {
-    setEditingProduct(null)
-    setEditForm({})
-  }
-
-  const handleDelete = async (product: Product) => {
-    if (!confirm(`Are you sure you want to delete "${product.title || product.upc}"? This action cannot be undone.`)) {
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/products/${product.id}`, {
-        method: 'DELETE'
-      })
-
-      if (response.ok) {
-        await fetchInventory() // Refresh the data
-        alert('Product deleted successfully')
-      } else {
-        const errorData = await response.json()
-        alert(`Failed to delete product: ${errorData.error || 'Unknown error'}`)
-      }
-    } catch (error) {
-      console.error('Error deleting product:', error)
-      alert('Error deleting product')
-    }
-  }
-
-  const getProductImage = (product: Product) => {
-    const firstImage = product.images?.[0]
-    return firstImage?.originalUrl || '/placeholder-product.svg'
-  }
-
-  const openImageGallery = (product: Product, index: number = 0) => {
-    setImageGallery({ isOpen: true, product, currentIndex: index })
-  }
-
-  const closeImageGallery = () => {
-    setImageGallery({ isOpen: false, product: null, currentIndex: 0 })
-  }
-
-  const nextImage = () => {
-    if (!imageGallery.product) return
-    const nextIndex = (imageGallery.currentIndex + 1) % imageGallery.product.images.length
-    setImageGallery(prev => ({ ...prev, currentIndex: nextIndex }))
-  }
-
-  const prevImage = () => {
-    if (!imageGallery.product) return
-    const prevIndex = imageGallery.currentIndex === 0 ? imageGallery.product.images.length - 1 : imageGallery.currentIndex - 1
-    setImageGallery(prev => ({ ...prev, currentIndex: prevIndex }))
-  }
-
-  // eBay Export Functions
-  const fetchEBayTemplates = async () => {
-    try {
-      const response = await fetch('/api/ebay/export')
-      if (response.ok) {
-        const data = await response.json()
-        setAvailableTemplates(data.templates || [])
-      }
-    } catch (error) {
-      console.error('Error fetching eBay templates:', error)
-    }
-  }
-
-  const handleEBayExport = async (templateType: string) => {
-    if (selectedProducts.size === 0) {
-      alert('No products selected for export')
-      return
-    }
-
-    setExportLoading(true)
-    try {
-      const response = await fetch('/api/ebay/export', {
+      
+      // Make the API call
+      const response = await fetch('/api/export/multi-format', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          productIds: Array.from(selectedProducts),
-          templateType,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
       })
-
+      
       if (response.ok) {
-        // Download the CSV file
+        // Download the file
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
-        a.style.display = 'none'
         a.href = url
-        a.download = `ebay_listings_${templateType}_${Date.now()}.csv`
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19)
+        a.download = `inventory_${exportFormat}_${timestamp}.csv`
         document.body.appendChild(a)
         a.click()
         window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
         
-        // Clear selection and close modal
-        setSelectedProducts(new Set())
-        setShowEBayExport(false)
-        alert(`Successfully exported ${selectedProducts.size} products to eBay CSV format!`)
+        // Close modal and show success
+        setShowExportModal(false)
+        alert(`Successfully exported ${exportScope === 'selected' ? selectedProducts.size : filteredProducts.length} products to ${exportFormat.toUpperCase()} format`)
       } else {
-        const errorData = await response.json()
-        alert(`Export failed: ${errorData.error || 'Unknown error'}`)
+        const error = await response.json()
+        alert(`Export failed: ${error.error || 'Unknown error'}`)
       }
     } catch (error) {
-      console.error('Error exporting to eBay:', error)
-      alert('Error exporting to eBay. Please try again.')
+      console.error('Export error:', error)
+      alert('Failed to export. Please try again.')
     } finally {
-      setExportLoading(false)
+      setExporting(false)
     }
-  }
-
-  const handleAIEnhance = async (product: Product) => {
-    if (aiEnhancing.has(product.id)) return
-
-    setAiEnhancing(prev => new Set([...prev, product.id]))
-
-    try {
-      const response = await fetch('/api/ai/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          productIds: [product.id],
-          regenerate: !!product.aiContent // Regenerate if AI content already exists
-        })
-      })
-
-      if (response.ok) {
-        const result = await response.json()
-        if (result.summary.completed > 0) {
-          await fetchInventory() // Refresh the data to show new AI content
-        }
-        
-        const message = result.summary.completed > 0 
-          ? 'AI content generated successfully!' 
-          : 'AI content generation failed'
-        alert(message)
-      } else {
-        throw new Error('Failed to generate AI content')
-      }
-    } catch (error) {
-      console.error('Error generating AI content:', error)
-      alert('Error generating AI content. Please try again.')
-    } finally {
-      setAiEnhancing(prev => {
-        const newSet = new Set(prev)
-        newSet.delete(product.id)
-        return newSet
-      })
-    }
-  }
-
-  const getAIStatusIcon = (aiContent?: AIContent) => {
-    if (!aiContent) return null
-    
-    switch (aiContent.status) {
-      case 'completed':
-        return <div className="w-2 h-2 bg-green-500 rounded-full" title="AI content completed" />
-      case 'processing':
-        return <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" title="AI content processing" />
-      case 'failed':
-        return <div className="w-2 h-2 bg-red-500 rounded-full" title="AI content failed" />
-      case 'pending':
-        return <div className="w-2 h-2 bg-yellow-500 rounded-full" title="AI content pending" />
-      default:
-        return null
-    }
-  }
-
-  // Load templates when export modal opens
-  useEffect(() => {
-    if (showEBayExport && availableTemplates.length === 0) {
-      fetchEBayTemplates()
-    }
-  }, [showEBayExport, availableTemplates.length])
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading inventory...</p>
-        </div>
-      </div>
-    )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <Link href="/" className="p-2 text-gray-400 hover:text-blue-600">
-                <ArrowLeft className="w-5 h-5" />
-              </Link>
-              <Package className="w-8 h-8 text-blue-600" />
+    <MainLayout
+      title="Inventory Management"
+      subtitle={`${products.length} products in inventory`}
+      icon={<Package className="w-8 h-8 text-primary" />}
+      actions={
+        <div className="flex space-x-2">
+          {selectedProducts.size > 0 && (
+            <>
+              <Button variant="outline" size="sm" onClick={bulkCreateDrafts}>
+                <Send className="w-4 h-4 mr-2" />
+                Create Drafts ({selectedProducts.size})
+              </Button>
+            </>
+          )}
+          
+          {/* Export Dropdown */}
+          <div className="relative group">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="flex items-center"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export
+              <ChevronDown className="w-3 h-3 ml-1" />
+            </Button>
+            
+            {/* Dropdown Menu */}
+            <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+              <button
+                onClick={() => {
+                  setExportFormat('cpi')
+                  setShowExportModal(true)
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg flex items-center"
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-2 text-blue-600" />
+                CPI Sheet
+              </button>
+              <button
+                onClick={() => {
+                  setExportFormat('baselinker')
+                  setShowExportModal(true)
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
+                Baselinker
+              </button>
+              <button
+                onClick={() => {
+                  setExportFormat('ebay')
+                  setShowExportModal(true)
+                }}
+                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-lg flex items-center"
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-2 text-purple-600" />
+                eBay
+              </button>
+            </div>
+          </div>
+          
+          <Button variant="primary" size="sm" onClick={() => router.push('/add-product')}>
+            <Plus className="w-4 h-4 mr-2" />
+            Add Product
+          </Button>
+        </div>
+      }
+    >
+      <div className="p-6">
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Products</p>
+                  <p className="text-2xl font-bold">{products.length}</p>
+                </div>
+                <Package className="w-8 h-8 text-primary opacity-20" />
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Value</p>
+                  <p className="text-2xl font-bold">
+                    ${products.reduce((sum, p) => sum + ((p.lowestRecordedPrice || 0) * p.quantity), 0).toFixed(2)}
+                  </p>
+                </div>
+                <DollarSign className="w-8 h-8 text-green-500 opacity-20" />
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Ready to List</p>
+                  <p className="text-2xl font-bold">
+                    {products.filter(p => p.listingDrafts?.some(d => d.status === 'ready')).length}
+                  </p>
+                </div>
+                <CheckCircle className="w-8 h-8 text-blue-500 opacity-20" />
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Low Stock</p>
+                  <p className="text-2xl font-bold">
+                    {products.filter(p => p.quantity <= 2).length}
+                  </p>
+                </div>
+                <AlertCircle className="w-8 h-8 text-orange-500 opacity-20" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Filters and Search */}
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search by title, UPC, or brand..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-input rounded-lg bg-background text-foreground"
+                />
+              </div>
+              
+              <select
+                value={filterCondition}
+                onChange={(e) => setFilterCondition(e.target.value)}
+                className="px-4 py-2 border border-input rounded-lg bg-background text-foreground"
+              >
+                <option value="all">All Conditions</option>
+                <option value="New">New</option>
+                <option value="Used">Used</option>
+                <option value="Refurbished">Refurbished</option>
+              </select>
+              
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="px-4 py-2 border border-input rounded-lg bg-background text-foreground"
+              >
+                <option value="updated">Recently Updated</option>
+                <option value="title">Title A-Z</option>
+                <option value="price">Price Low-High</option>
+                <option value="quantity">Quantity</option>
+              </select>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Products Table */}
+        <Card>
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="p-8 text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+                <p className="mt-4 text-muted-foreground">Loading inventory...</p>
+              </div>
+            ) : filteredProducts.length === 0 ? (
+              <div className="p-8 text-center">
+                <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">No products found</p>
+                <Button variant="primary" className="mt-4" onClick={() => router.push('/add-product')}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Your First Product
+                </Button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-muted/50 border-b border-border">
+                    <tr>
+                      <th className="p-3 text-left">
+                        <input
+                          type="checkbox"
+                          checked={selectedProducts.size === products.length}
+                          onChange={handleSelectAll}
+                          className="rounded border-input"
+                        />
+                      </th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Image</th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Product</th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Brand/UPC</th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Qty</th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Price Range</th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Condition</th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Status</th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredProducts.map((product) => (
+                      <tr 
+                        key={product.id} 
+                        className="border-b border-border hover:bg-muted/30 cursor-pointer"
+                        onClick={() => router.push(`/products/${product.id}`)}
+                      >
+                        <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedProducts.has(product.id)}
+                            onChange={() => handleSelect(product.id)}
+                            className="rounded border-input"
+                          />
+                        </td>
+                        <td className="p-3">
+                          {product.images && product.images[0]?.originalUrl ? (
+                            <img
+                              src={product.images[0].originalUrl}
+                              alt={product.title}
+                              className="w-12 h-12 object-cover rounded"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 bg-muted rounded flex items-center justify-center">
+                              <ImageIcon className="w-6 h-6 text-muted-foreground" />
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          <div className="font-medium text-foreground line-clamp-2">
+                            {product.title || 'Untitled Product'}
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <div className="text-sm">
+                            <div className="text-foreground">{product.brand || 'No brand'}</div>
+                            <div className="text-muted-foreground font-mono text-xs">{product.upc}</div>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <span className={`font-medium ${product.quantity <= 2 ? 'text-orange-500' : 'text-foreground'}`}>
+                            {product.quantity}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <div className="text-sm">
+                            {product.lowestRecordedPrice ? (
+                              <>
+                                <div className="font-medium text-foreground">
+                                  ${product.lowestRecordedPrice?.toFixed(2)}
+                                </div>
+                                {product.highestRecordedPrice && (
+                                  <div className="text-muted-foreground text-xs">
+                                    - ${product.highestRecordedPrice?.toFixed(2)}
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground">No price</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            product.condition === 'New' 
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          }`}>
+                            {product.condition}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          {product.listingDrafts && product.listingDrafts.length > 0 ? (
+                            <span className="text-xs text-muted-foreground">
+                              {product.listingDrafts.length} draft(s)
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No drafts</span>
+                          )}
+                        </td>
+                        <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center space-x-1">
+                            <button
+                              onClick={() => router.push(`/products/${product.id}`)}
+                              className="p-1 rounded hover:bg-muted"
+                              title="View Details"
+                            >
+                              <Eye className="w-4 h-4 text-muted-foreground" />
+                            </button>
+                            <button
+                              onClick={() => router.push(`/products/${product.id}`)}
+                              className="p-1 rounded hover:bg-muted"
+                              title="Edit"
+                            >
+                              <Edit className="w-4 h-4 text-muted-foreground" />
+                            </button>
+                            <button
+                              className="p-1 rounded hover:bg-muted"
+                              title="Create Draft"
+                            >
+                              <Send className="w-4 h-4 text-muted-foreground" />
+                            </button>
+                            <button
+                              className="p-1 rounded hover:bg-muted"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+      
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center space-x-3">
+                <FileSpreadsheet className="w-6 h-6 text-blue-600" />
+                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Export Inventory</h2>
+              </div>
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            
+            {/* Modal Body */}
+            <div className="p-6 space-y-6">
+              {/* Format Selection */}
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Inventory Management</h1>
-                <p className="text-gray-600">{products.length} products in inventory</p>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Export Format
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={() => setExportFormat('cpi')}
+                    className={`p-3 rounded-lg border-2 transition-colors ${
+                      exportFormat === 'cpi'
+                        ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <FileSpreadsheet className="w-5 h-5 mx-auto mb-1 text-blue-600" />
+                    <div className="text-xs font-medium">CPI</div>
+                  </button>
+                  <button
+                    onClick={() => setExportFormat('baselinker')}
+                    className={`p-3 rounded-lg border-2 transition-colors ${
+                      exportFormat === 'baselinker'
+                        ? 'border-green-600 bg-green-50 dark:bg-green-900/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <FileSpreadsheet className="w-5 h-5 mx-auto mb-1 text-green-600" />
+                    <div className="text-xs font-medium">Baselinker</div>
+                  </button>
+                  <button
+                    onClick={() => setExportFormat('ebay')}
+                    className={`p-3 rounded-lg border-2 transition-colors ${
+                      exportFormat === 'ebay'
+                        ? 'border-purple-600 bg-purple-50 dark:bg-purple-900/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <FileSpreadsheet className="w-5 h-5 mx-auto mb-1 text-purple-600" />
+                    <div className="text-xs font-medium">eBay</div>
+                  </button>
+                </div>
+              </div>
+              
+              {/* Scope Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Export Scope
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
+                    <input
+                      type="radio"
+                      value="filtered"
+                      checked={exportScope === 'filtered'}
+                      onChange={(e) => setExportScope(e.target.value as 'filtered' | 'selected')}
+                      className="mr-3"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-900 dark:text-gray-100">
+                        All Filtered Products ({filteredProducts.length})
+                      </div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                        Export all products matching current filters
+                      </div>
+                    </div>
+                  </label>
+                  
+                  {selectedProducts.size > 0 && (
+                    <label className="flex items-center p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
+                      <input
+                        type="radio"
+                        value="selected"
+                        checked={exportScope === 'selected'}
+                        onChange={(e) => setExportScope(e.target.value as 'filtered' | 'selected')}
+                        className="mr-3"
+                      />
+                      <div>
+                        <div className="font-medium text-gray-900 dark:text-gray-100">
+                          Selected Products ({selectedProducts.size})
+                        </div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                          Export only selected products
+                        </div>
+                      </div>
+                    </label>
+                  )}
+                </div>
+              </div>
+              
+              {/* Export Options */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Export Options
+                </label>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-700 dark:text-gray-300">Currency</span>
+                    <select
+                      value={exportOptions.currency}
+                      onChange={(e) => setExportOptions({...exportOptions, currency: e.target.value})}
+                      className="px-3 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                    >
+                      <option value="USD">USD</option>
+                      <option value="EUR">EUR</option>
+                      <option value="GBP">GBP</option>
+                      <option value="PLN">PLN</option>
+                    </select>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-700 dark:text-gray-300">Delimiter</span>
+                    <select
+                      value={exportOptions.delimiter}
+                      onChange={(e) => setExportOptions({...exportOptions, delimiter: e.target.value})}
+                      className="px-3 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                    >
+                      <option value=",">Comma (,)</option>
+                      <option value=";">Semicolon (;)</option>
+                    </select>
+                  </div>
+                  
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={exportOptions.excelFriendly}
+                      onChange={(e) => setExportOptions({...exportOptions, excelFriendly: e.target.checked})}
+                      className="mr-2 rounded"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">
+                      Excel Compatible (UTF-8 BOM)
+                    </span>
+                  </label>
+                </div>
+              </div>
+              
+              {/* Format-specific info */}
+              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  {exportFormat === 'cpi' && (
+                    <div>
+                      <strong>CPI Format includes:</strong>
+                      <ul className="mt-1 text-xs space-y-1">
+                        <li>• SKU, Title, Purchase/List Price</li>
+                        <li>• Quantity, Category, Supplier</li>
+                        <li>• Barcode, Weight, Currency</li>
+                      </ul>
+                    </div>
+                  )}
+                  {exportFormat === 'baselinker' && (
+                    <div>
+                      <strong>Baselinker Format includes:</strong>
+                      <ul className="mt-1 text-xs space-y-1">
+                        <li>• Product name, SKU, EAN/UPC</li>
+                        <li>• Price, Stock, Weight</li>
+                        <li>• Description, Category, Images</li>
+                      </ul>
+                    </div>
+                  )}
+                  {exportFormat === 'ebay' && (
+                    <div>
+                      <strong>eBay Format includes:</strong>
+                      <ul className="mt-1 text-xs space-y-1">
+                        <li>• Title, Category, Condition</li>
+                        <li>• Pricing, Quantity, Images</li>
+                        <li>• Item Specifics, Brand, UPC/EAN</li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="flex space-x-4">
-              {selectedProducts.size > 0 && (
-                <button
-                  onClick={() => setShowEBayExport(true)}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center space-x-2"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Export to eBay ({selectedProducts.size})</span>
-                </button>
-              )}
-              <Link
-                href="/ai-content"
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center space-x-2"
+            
+            {/* Modal Footer */}
+            <div className="flex justify-end space-x-3 p-6 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
               >
-                <Bot className="w-4 h-4" />
-                <span>AI Content</span>
-              </Link>
-              <Link
-                href="/"
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center space-x-2"
+                Cancel
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
               >
-                <Package className="w-4 h-4" />
-                <span>Back to Scanner</span>
-              </Link>
+                {exporting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 mr-2" />
+                    Export
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
-
-        {/* Inventory List */}
-        {products.length === 0 ? (
-          <div className="text-center py-12">
-            <Package className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No products in inventory</h3>
-            <p className="text-gray-600 mb-4">Start scanning products to build your inventory</p>
-            <Link
-              href="/"
-              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <Package className="w-4 h-4 mr-2" />
-              Go to Scanner
-            </Link>
-          </div>
-        ) : (
-          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-            {/* Table Header */}
-            <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
-              <div className="grid grid-cols-13 gap-4 text-xs font-medium text-gray-600 uppercase tracking-wider">
-                <div className="col-span-1 text-center">
-                  <input
-                    type="checkbox"
-                    checked={selectedProducts.size === products.length && products.length > 0}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedProducts(new Set(products.map(p => p.id)))
-                      } else {
-                        setSelectedProducts(new Set())
-                      }
-                    }}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="col-span-1">Image</div>
-                <div className="col-span-3">Product</div>
-                <div className="col-span-2">Brand/UPC</div>
-                <div className="col-span-1 text-center">Qty</div>
-                <div className="col-span-2">Price Range</div>
-                <div className="col-span-2">Details</div>
-                <div className="col-span-1 text-center">Actions</div>
-              </div>
-            </div>
-
-            {/* Product Rows */}
-            <div className="divide-y divide-gray-200">
-              {products.map((product) => (
-                <div key={product.id} className="px-6 py-4 hover:bg-gray-50">
-                  {editingProduct === product.id ? (
-                    /* Edit Form */
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-12 gap-4">
-                        <div className="col-span-1">
-                          <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center">
-                            <img
-                              src={getProductImage(product)}
-                              alt={product.title || `Product ${product.upc}`}
-                              className="max-w-full max-h-full object-contain rounded"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = '/placeholder-product.svg'
-                              }}
-                            />
-                          </div>
-                        </div>
-                        <div className="col-span-11 space-y-3">
-                          <input
-                            type="text"
-                            placeholder="Product Title"
-                            value={editForm.title || ''}
-                            onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                          />
-                          <div className="grid grid-cols-2 gap-3">
-                            <input
-                              type="text"
-                              placeholder="Brand"
-                              value={editForm.brand || ''}
-                              onChange={(e) => setEditForm({ ...editForm, brand: e.target.value })}
-                              className="px-3 py-2 border border-gray-300 rounded-md text-sm"
-                            />
-                            <input
-                              type="number"
-                              placeholder="Quantity"
-                              value={editForm.quantity || 0}
-                              onChange={(e) => setEditForm({ ...editForm, quantity: parseInt(e.target.value) || 0 })}
-                              className="px-3 py-2 border border-gray-300 rounded-md text-sm"
-                            />
-                          </div>
-                          <div className="grid grid-cols-3 gap-3">
-                            <input
-                              type="text"
-                              placeholder="Color"
-                              value={editForm.color || ''}
-                              onChange={(e) => setEditForm({ ...editForm, color: e.target.value })}
-                              className="px-3 py-2 border border-gray-300 rounded-md text-sm"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Size"
-                              value={editForm.size || ''}
-                              onChange={(e) => setEditForm({ ...editForm, size: e.target.value })}
-                              className="px-3 py-2 border border-gray-300 rounded-md text-sm"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Weight"
-                              value={editForm.weight || ''}
-                              onChange={(e) => setEditForm({ ...editForm, weight: e.target.value })}
-                              className="px-3 py-2 border border-gray-300 rounded-md text-sm"
-                            />
-                          </div>
-                          <textarea
-                            placeholder="Description"
-                            value={editForm.description || ''}
-                            onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm h-20 resize-none"
-                          />
-                          
-                          {/* AI Content Fields */}
-                          {editForm.aiContent !== undefined && (
-                            <div className="space-y-3 border-t border-purple-200 pt-4 mt-4">
-                              <div className="flex items-center space-x-2 mb-3">
-                                <Sparkles className="w-4 h-4 text-purple-600" />
-                                <h5 className="text-sm font-medium text-purple-900">AI Generated Content</h5>
-                              </div>
-                              
-                              <input
-                                type="text"
-                                placeholder="SEO Title"
-                                value={editForm.aiContent?.seoTitle || ''}
-                                onChange={(e) => setEditForm({ 
-                                  ...editForm, 
-                                  aiContent: { ...editForm.aiContent, seoTitle: e.target.value } 
-                                })}
-                                className="w-full px-3 py-2 border border-purple-300 rounded-md text-sm bg-white text-gray-900 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
-                              />
-                              
-                              <input
-                                type="text"
-                                placeholder="eBay Title"
-                                value={editForm.aiContent?.ebayTitle || ''}
-                                onChange={(e) => setEditForm({ 
-                                  ...editForm, 
-                                  aiContent: { ...editForm.aiContent, ebayTitle: e.target.value } 
-                                })}
-                                className="w-full px-3 py-2 border border-purple-300 rounded-md text-sm bg-white text-gray-900 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
-                              />
-                              
-                              <textarea
-                                placeholder="Short Description"
-                                value={editForm.aiContent?.shortDescription || ''}
-                                onChange={(e) => setEditForm({ 
-                                  ...editForm, 
-                                  aiContent: { ...editForm.aiContent, shortDescription: e.target.value } 
-                                })}
-                                className="w-full px-3 py-2 border border-purple-300 rounded-md text-sm h-16 resize-none bg-white text-gray-900 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
-                              />
-                              
-                              <textarea
-                                placeholder="Product Description (AI Generated)"
-                                value={editForm.aiContent?.productDescription || ''}
-                                onChange={(e) => setEditForm({ 
-                                  ...editForm, 
-                                  aiContent: { ...editForm.aiContent, productDescription: e.target.value } 
-                                })}
-                                className="w-full px-3 py-2 border border-purple-300 rounded-md text-sm h-24 resize-none bg-white text-gray-900 focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
-                              />
-                            </div>
-                          )}
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={handleSave}
-                              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center space-x-2"
-                            >
-                              <Save className="w-4 h-4" />
-                              <span>Save</span>
-                            </button>
-                            <button
-                              onClick={handleCancel}
-                              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 flex items-center space-x-2"
-                            >
-                              <X className="w-4 h-4" />
-                              <span>Cancel</span>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Display Mode */
-                    <div 
-                      className="grid grid-cols-13 gap-4 items-center cursor-pointer hover:bg-gray-100 transition-colors rounded-lg p-2 -m-2" 
-                      onClick={() => window.location.href = `/inventory/${product.id}`}
-                    >
-                      {/* Selection Checkbox */}
-                      <div 
-                        className="col-span-1 text-center"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedProducts.has(product.id)}
-                          onChange={(e) => {
-                            const newSelected = new Set(selectedProducts)
-                            if (e.target.checked) {
-                              newSelected.add(product.id)
-                            } else {
-                              newSelected.delete(product.id)
-                            }
-                            setSelectedProducts(newSelected)
-                          }}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                      </div>
-                      
-                      {/* Product Image */}
-                      <div className="col-span-1">
-                        <div 
-                          className="relative w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center cursor-pointer group"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openImageGallery(product)
-                          }}
-                        >
-                          <img
-                            src={getProductImage(product)}
-                            alt={product.title || `Product ${product.upc}`}
-                            className="max-w-full max-h-full object-contain rounded group-hover:scale-105 transition-transform"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = '/placeholder-product.svg'
-                            }}
-                          />
-                          {product.images.length > 1 && (
-                            <div className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                              {product.images.length}
-                            </div>
-                          )}
-                          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100">
-                            <Eye className="w-4 h-4 text-white" />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Product Info */}
-                      <div className="col-span-3">
-                        <div className="flex items-start justify-between">
-                          <h3 className="font-semibold text-gray-900 text-sm mb-1 flex-1">
-                            {product.title || `UPC: ${product.upc}`}
-                          </h3>
-                          {getAIStatusIcon(product.aiContent)}
-                        </div>
-                        {product.description && (
-                          <p className="text-xs text-gray-600 line-clamp-2">{product.description}</p>
-                        )}
-                        {product.categories.length > 0 && (
-                          <p className="text-xs text-purple-600 mt-1">{product.categories[0].category.name}</p>
-                        )}
-                      </div>
-
-                      {/* Brand/UPC */}
-                      <div className="col-span-2">
-                        {product.brand && (
-                          <p className="text-sm font-medium text-gray-900">{product.brand}</p>
-                        )}
-                        <p className="text-xs text-gray-500">UPC: {product.upc}</p>
-                        {product.model && (
-                          <p className="text-xs text-gray-500">Model: {product.model}</p>
-                        )}
-                      </div>
-
-                      {/* Quantity */}
-                      <div className="col-span-1 text-center">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {product.quantity}
-                        </span>
-                      </div>
-
-                      {/* Price Range */}
-                      <div className="col-span-2">
-                        {product.lowestRecordedPrice || product.highestRecordedPrice ? (
-                          <div>
-                            {product.lowestRecordedPrice && product.highestRecordedPrice && product.lowestRecordedPrice !== product.highestRecordedPrice ? (
-                              <p className="text-sm font-medium text-green-600">
-                                ${product.lowestRecordedPrice.toFixed(2)} - ${product.highestRecordedPrice.toFixed(2)}
-                              </p>
-                            ) : (
-                              <p className="text-sm font-medium text-green-600">
-                                ${(product.lowestRecordedPrice || product.highestRecordedPrice)?.toFixed(2)}
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-gray-400">No price data</p>
-                        )}
-                        {product.offers.length > 0 && (
-                          <p className="text-xs text-gray-500">{product.offers.length} offer{product.offers.length !== 1 ? 's' : ''}</p>
-                        )}
-                      </div>
-
-                      {/* Details */}
-                      <div className="col-span-2">
-                        <div className="text-xs text-gray-600 space-y-1">
-                          {product.color && <div><span className="font-medium">Color:</span> {product.color}</div>}
-                          {product.size && <div><span className="font-medium">Size:</span> {product.size}</div>}
-                          {product.weight && <div><span className="font-medium">Weight:</span> {product.weight}</div>}
-                          {product.lastScanned && (
-                            <div className="text-gray-400">Scanned: {new Date(product.lastScanned).toLocaleDateString()}</div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="col-span-1 text-center" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-center flex-wrap gap-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleEdit(product)
-                            }}
-                            className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors border border-gray-200 hover:border-blue-200"
-                            title="Edit product"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleAIEnhance(product)
-                            }}
-                            disabled={aiEnhancing.has(product.id)}
-                            className="p-1.5 text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-md transition-colors border border-gray-200 hover:border-purple-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title={product.aiContent?.status === 'completed' ? 'Regenerate AI content' : 'Generate AI content'}
-                          >
-                            {aiEnhancing.has(product.id) ? (
-                              <div className="w-3.5 h-3.5 border border-purple-600 border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <Sparkles className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDelete(product)
-                            }}
-                            className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors border border-gray-200 hover:border-red-200"
-                            title="Delete product"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Image Gallery Modal */}
-        {imageGallery.isOpen && imageGallery.product && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
-            <div className="relative max-w-4xl max-h-full w-full h-full flex items-center justify-center p-4">
-              {/* Close Button */}
-              <button
-                onClick={closeImageGallery}
-                className="absolute top-4 right-4 z-10 p-2 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition-colors"
-              >
-                <X className="w-6 h-6" />
-              </button>
-
-              {/* Navigation - Previous */}
-              {imageGallery.product.images.length > 1 && (
-                <button
-                  onClick={prevImage}
-                  className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10 p-3 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition-colors"
-                >
-                  <ChevronLeft className="w-6 h-6" />
-                </button>
-              )}
-
-              {/* Navigation - Next */}
-              {imageGallery.product.images.length > 1 && (
-                <button
-                  onClick={nextImage}
-                  className="absolute right-4 top-1/2 transform -translate-y-1/2 z-10 p-3 bg-black bg-opacity-50 text-white rounded-full hover:bg-opacity-75 transition-colors"
-                >
-                  <ChevronRight className="w-6 h-6" />
-                </button>
-              )}
-
-              {/* Main Image */}
-              <div className="relative w-full h-full flex items-center justify-center">
-                <img
-                  src={imageGallery.product.images[imageGallery.currentIndex]?.originalUrl || '/placeholder-product.svg'}
-                  alt={`${imageGallery.product.title || 'Product'} - Image ${imageGallery.currentIndex + 1}`}
-                  className="max-w-full max-h-full object-contain"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = '/placeholder-product.svg'
-                  }}
-                />
-              </div>
-
-              {/* Image Counter */}
-              {imageGallery.product.images.length > 1 && (
-                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 px-3 py-1 bg-black bg-opacity-50 text-white rounded-full text-sm">
-                  {imageGallery.currentIndex + 1} of {imageGallery.product.images.length}
-                </div>
-              )}
-
-              {/* Product Info Overlay */}
-              <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 text-white p-3 rounded-lg max-w-sm">
-                <h3 className="font-semibold text-sm mb-1">
-                  {imageGallery.product.title || `UPC: ${imageGallery.product.upc}`}
-                </h3>
-                {imageGallery.product.brand && (
-                  <p className="text-xs opacity-75">{imageGallery.product.brand}</p>
-                )}
-              </div>
-
-              {/* Thumbnail Strip */}
-              {imageGallery.product.images.length > 1 && (
-                <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 flex space-x-2 max-w-full overflow-x-auto px-4">
-                  {imageGallery.product.images.map((image, index) => (
-                    <button
-                      key={image.id}
-                      onClick={() => setImageGallery(prev => ({ ...prev, currentIndex: index }))}
-                      className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-colors ${
-                        index === imageGallery.currentIndex 
-                          ? 'border-white' 
-                          : 'border-transparent hover:border-gray-300'
-                      }`}
-                    >
-                      <img
-                        src={image.originalUrl || '/placeholder-product.svg'}
-                        alt={`Thumbnail ${index + 1}`}
-                        className="w-full h-full object-contain bg-gray-900"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = '/placeholder-product.svg'
-                        }}
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* eBay Export Modal */}
-        {showEBayExport && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
-              {/* Modal Header */}
-              <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                <div className="flex items-center space-x-3">
-                  <ShoppingCart className="w-6 h-6 text-green-600" />
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Export to eBay</h3>
-                    <p className="text-sm text-gray-600">{selectedProducts.size} products selected</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowEBayExport(false)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Modal Body */}
-              <div className="p-6">
-                <div className="mb-6">
-                  <h4 className="text-sm font-medium text-gray-900 mb-3">Select eBay Template</h4>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Choose the appropriate eBay category template for your products. This will format your export 
-                    according to eBay&apos;s bulk listing requirements.
-                  </p>
-                  
-                  {availableTemplates.length === 0 ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></div>
-                      <span className="ml-2 text-gray-600">Loading templates...</span>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {availableTemplates.map((template) => (
-                        <div key={template.id} className="border border-gray-200 rounded-lg">
-                          <button
-                            onClick={() => handleEBayExport(template.id)}
-                            disabled={exportLoading}
-                            className="w-full p-4 text-left hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
-                          >
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <h5 className="font-medium text-gray-900">{template.name}</h5>
-                                <p className="text-sm text-gray-600">Category: {template.category}</p>
-                                {template.requiredAspects && (
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    Required: {template.requiredAspects.join(', ')}
-                                  </p>
-                                )}
-                              </div>
-                              {exportLoading ? (
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
-                              ) : (
-                                <Download className="w-4 h-4 text-gray-400" />
-                              )}
-                            </div>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0">
-                      <Package className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div className="ml-3">
-                      <h5 className="text-sm font-medium text-blue-900">Export Information</h5>
-                      <p className="text-sm text-blue-700 mt-1">
-                        The exported CSV file will include product details, pricing, images, and AI-generated content 
-                        formatted for eBay bulk upload. Make sure to review the data before uploading to eBay.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200 bg-gray-50 rounded-b-lg">
-                <button
-                  onClick={() => setShowEBayExport(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Product Detail Modal */}
-        {detailView.isOpen && detailView.product && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
-            <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-              {/* Modal Header */}
-              <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                <div className="flex items-center space-x-3">
-                  <Package className="w-6 h-6 text-blue-600" />
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      {detailView.product.title || `Product ${detailView.product.upc}`}
-                    </h3>
-                    <p className="text-sm text-gray-600">Product Details & Information</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setDetailView({ isOpen: false, product: null })}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Modal Body */}
-              <div className="p-6">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Left Column - Images */}
-                  <div className="space-y-4">
-                    <div className="w-full aspect-square bg-gray-100 rounded-lg overflow-hidden">
-                      <img
-                        src={getProductImage(detailView.product)}
-                        alt={detailView.product.title || `Product ${detailView.product.upc}`}
-                        className="w-full h-full object-contain"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = '/placeholder-product.svg'
-                        }}
-                      />
-                    </div>
-                    {detailView.product.images.length > 1 && (
-                      <div className="grid grid-cols-4 gap-2">
-                        {detailView.product.images.slice(0, 8).map((image, index) => (
-                          <button
-                            key={image.id}
-                            onClick={() => openImageGallery(detailView.product!, index)}
-                            className="aspect-square bg-gray-100 rounded-lg overflow-hidden hover:ring-2 hover:ring-blue-500 transition-all"
-                          >
-                            <img
-                              src={image.originalUrl || '/placeholder-product.svg'}
-                              alt={`Product image ${index + 1}`}
-                              className="w-full h-full object-contain"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = '/placeholder-product.svg'
-                              }}
-                            />
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Center Column - Product Info */}
-                  <div className="space-y-6">
-                    {/* Basic Info */}
-                    <div>
-                      <h4 className="text-lg font-semibold text-gray-900 mb-3">Product Information</h4>
-                      <div className="space-y-3">
-                        <div>
-                          <label className="text-sm font-medium text-gray-600">UPC/EAN</label>
-                          <p className="text-sm text-gray-900">{detailView.product.upc}</p>
-                          {detailView.product.ean && (
-                            <p className="text-xs text-gray-500">EAN: {detailView.product.ean}</p>
-                          )}
-                        </div>
-                        {detailView.product.brand && (
-                          <div>
-                            <label className="text-sm font-medium text-gray-600">Brand</label>
-                            <p className="text-sm text-gray-900">{detailView.product.brand}</p>
-                          </div>
-                        )}
-                        {detailView.product.model && (
-                          <div>
-                            <label className="text-sm font-medium text-gray-600">Model</label>
-                            <p className="text-sm text-gray-900">{detailView.product.model}</p>
-                          </div>
-                        )}
-                        {detailView.product.description && (
-                          <div>
-                            <label className="text-sm font-medium text-gray-600">Description</label>
-                            <p className="text-sm text-gray-900">{detailView.product.description}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Physical Properties */}
-                    {(detailView.product.color || detailView.product.size || detailView.product.weight) && (
-                      <div>
-                        <h4 className="text-lg font-semibold text-gray-900 mb-3">Physical Properties</h4>
-                        <div className="grid grid-cols-2 gap-3">
-                          {detailView.product.color && (
-                            <div>
-                              <label className="text-sm font-medium text-gray-600">Color</label>
-                              <p className="text-sm text-gray-900">{detailView.product.color}</p>
-                            </div>
-                          )}
-                          {detailView.product.size && (
-                            <div>
-                              <label className="text-sm font-medium text-gray-600">Size</label>
-                              <p className="text-sm text-gray-900">{detailView.product.size}</p>
-                            </div>
-                          )}
-                          {detailView.product.weight && (
-                            <div>
-                              <label className="text-sm font-medium text-gray-600">Weight</label>
-                              <p className="text-sm text-gray-900">{detailView.product.weight}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Inventory Info */}
-                    <div>
-                      <h4 className="text-lg font-semibold text-gray-900 mb-3">Inventory</h4>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-sm font-medium text-gray-600">Quantity</label>
-                          <p className="text-lg font-semibold text-blue-600">{detailView.product.quantity}</p>
-                        </div>
-                        {detailView.product.lastScanned && (
-                          <div>
-                            <label className="text-sm font-medium text-gray-600">Last Scanned</label>
-                            <p className="text-sm text-gray-900">
-                              {new Date(detailView.product.lastScanned).toLocaleString()}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Categories */}
-                    {detailView.product.categories.length > 0 && (
-                      <div>
-                        <h4 className="text-lg font-semibold text-gray-900 mb-3">Categories</h4>
-                        <div className="space-y-2">
-                          {detailView.product.categories.map((cat, index) => (
-                            <div key={cat.category.id} className="flex items-center">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                                {cat.category.name}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Right Column - Pricing & AI Content */}
-                  <div className="space-y-6">
-                    {/* Pricing */}
-                    <div>
-                      <h4 className="text-lg font-semibold text-gray-900 mb-3">Pricing Information</h4>
-                      {detailView.product.lowestRecordedPrice || detailView.product.highestRecordedPrice ? (
-                        <div className="space-y-2">
-                          {detailView.product.lowestRecordedPrice && (
-                            <div>
-                              <label className="text-sm font-medium text-gray-600">Lowest Price</label>
-                              <p className="text-lg font-semibold text-green-600">
-                                ${detailView.product.lowestRecordedPrice.toFixed(2)}
-                              </p>
-                            </div>
-                          )}
-                          {detailView.product.highestRecordedPrice && (
-                            <div>
-                              <label className="text-sm font-medium text-gray-600">Highest Price</label>
-                              <p className="text-lg font-semibold text-green-600">
-                                ${detailView.product.highestRecordedPrice.toFixed(2)}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-gray-500">No pricing data available</p>
-                      )}
-                    </div>
-
-                    {/* Market Offers */}
-                    {detailView.product.offers.length > 0 && (
-                      <div>
-                        <h4 className="text-lg font-semibold text-gray-900 mb-3">
-                          Market Offers ({detailView.product.offers.length})
-                        </h4>
-                        <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {detailView.product.offers.map((offer) => (
-                            <div key={offer.id} className="bg-gray-50 rounded-lg p-3">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <p className="font-medium text-sm text-gray-900">{offer.merchant}</p>
-                                  {offer.condition && (
-                                    <p className="text-xs text-gray-600">Condition: {offer.condition}</p>
-                                  )}
-                                </div>
-                                <div className="text-right">
-                                  {offer.price && (
-                                    <p className="font-semibold text-sm text-green-600">
-                                      ${offer.price.toFixed(2)}
-                                    </p>
-                                  )}
-                                  {offer.availability && (
-                                    <p className="text-xs text-gray-500">{offer.availability}</p>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* AI Content Status */}
-                    <div>
-                      <h4 className="text-lg font-semibold text-gray-900 mb-3">AI Content</h4>
-                      {detailView.product.aiContent ? (
-                        <div className="space-y-3">
-                          <div className="flex items-center space-x-2">
-                            {getAIStatusIcon(detailView.product.aiContent)}
-                            <span className="text-sm font-medium text-gray-700">
-                              Status: {detailView.product.aiContent.status}
-                            </span>
-                          </div>
-                          {detailView.product.aiContent.ebayTitle && (
-                            <div>
-                              <label className="text-sm font-medium text-gray-600">eBay Title</label>
-                              <p className="text-sm text-gray-900">{detailView.product.aiContent.ebayTitle}</p>
-                            </div>
-                          )}
-                          {detailView.product.aiContent.shortDescription && (
-                            <div>
-                              <label className="text-sm font-medium text-gray-600">Short Description</label>
-                              <p className="text-sm text-gray-900">{detailView.product.aiContent.shortDescription}</p>
-                            </div>
-                          )}
-                          {detailView.product.aiContent.generatedAt && (
-                            <div>
-                              <label className="text-sm font-medium text-gray-600">Generated</label>
-                              <p className="text-xs text-gray-500">
-                                {new Date(detailView.product.aiContent.generatedAt).toLocaleString()}
-                              </p>
-                            </div>
-                          )}
-                          <Link
-                            href={`/ai-content?productId=${detailView.product.id}`}
-                            className="inline-flex items-center px-3 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                          >
-                            <Bot className="w-4 h-4 mr-2" />
-                            View AI Content
-                          </Link>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <p className="text-sm text-gray-500">No AI content generated yet</p>
-                          <button
-                            onClick={() => handleAIEnhance(detailView.product!)}
-                            disabled={aiEnhancing.has(detailView.product!.id)}
-                            className="inline-flex items-center px-3 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {aiEnhancing.has(detailView.product!.id) ? (
-                              <div className="w-4 h-4 border border-white border-t-transparent rounded-full animate-spin mr-2" />
-                            ) : (
-                              <Sparkles className="w-4 h-4 mr-2" />
-                            )}
-                            Generate AI Content
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="flex items-center justify-between space-x-3 p-6 border-t border-gray-200 bg-gray-50 rounded-b-lg">
-                <div className="flex items-center space-x-3">
-                  <button
-                    onClick={() => {
-                      setDetailView({ isOpen: false, product: null })
-                      handleEdit(detailView.product!)
-                    }}
-                    className="inline-flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <Edit className="w-4 h-4 mr-2" />
-                    Edit Product
-                  </button>
-                  <button
-                    onClick={() => openImageGallery(detailView.product!)}
-                    className="inline-flex items-center px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-                  >
-                    <Eye className="w-4 h-4 mr-2" />
-                    View Images
-                  </button>
-                </div>
-                <button
-                  onClick={() => setDetailView({ isOpen: false, product: null })}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+      )}
+    </MainLayout>
   )
 }

@@ -17,6 +17,19 @@ export async function PATCH(
       color,
       size,
       weight,
+      dimensions,
+      condition,
+      material,
+      mpn,
+      ageGroup,
+      theme,
+      character,
+      series,
+      exclusivity,
+      releaseDate,
+      features,
+      funkoPop,
+      isbn,
       quantity,
       aiContent
     } = body
@@ -34,6 +47,19 @@ export async function PATCH(
           color,
           size,
           weight,
+          dimensions,
+          condition,
+          material,
+          mpn,
+          ageGroup,
+          theme,
+          character,
+          series,
+          exclusivity,
+          releaseDate,
+          features,
+          funkoPop: typeof funkoPop === 'boolean' ? funkoPop : undefined,
+          isbn,
           quantity: typeof quantity === 'number' ? quantity : undefined,
           updatedAt: new Date()
         },
@@ -134,7 +160,8 @@ export async function GET(
           include: {
             category: true
           }
-        }
+        },
+        aiContent: true
       }
     })
 

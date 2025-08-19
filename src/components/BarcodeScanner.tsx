@@ -11,12 +11,15 @@ interface ScannedItem {
   title?: string
   description?: string
   brand?: string
+  imageUrl?: string
   quantityAdded: number
   totalQuantity?: number
   scannedAt: Date
   status: 'processing' | 'success' | 'error'
   message?: string
   isNewProduct?: boolean
+  draftId?: string
+  productId?: string
 }
 
 export default function BarcodeScanner() {
@@ -70,7 +73,7 @@ export default function BarcodeScanner() {
       quantityAdded: 1,
       scannedAt: new Date(),
       status: 'processing',
-      message: 'Looking up product and adding to inventory...'
+      message: 'Checking if product exists, then looking up details...'
     }
 
     // Add to recently scanned list immediately
@@ -78,15 +81,6 @@ export default function BarcodeScanner() {
     setTotalScanned(prev => prev + 1)
 
     try {
-      // First, try to get existing product from inventory to check current quantity
-      const inventoryResponse = await fetch('/api/inventory')
-      let existingProduct = null
-
-      if (inventoryResponse.ok) {
-        const inventory = await inventoryResponse.json()
-        existingProduct = inventory.find((p: { upc: string }) => p.upc === upc)
-      }
-
       // Look up product information and add to inventory in one call
       const response = await fetch('/api/products/lookup', {
         method: 'POST',
@@ -98,8 +92,38 @@ export default function BarcodeScanner() {
         })
       })
 
+      console.log('Product lookup response status:', response.status)
+      
       if (response.ok) {
         const result = await response.json()
+        console.log('Product lookup result:', result)
+        
+        // Check if this was an existing product or new one
+        const isExistingProduct = result.source === 'database'
+        const previousQuantity = result.previousQuantity || 0
+        const quantityAdded = result.quantityAdded || 1
+        
+        // Create a listing draft for the product
+        let draftId = null
+        try {
+          const draftResponse = await fetch('/api/listings/drafts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productId: result.id,
+              marketplace: 'EBAY',
+              price: result.lowestRecordedPrice || 0,
+              quantity: 1
+            })
+          })
+          
+          if (draftResponse.ok) {
+            const draft = await draftResponse.json()
+            draftId = draft.id
+          }
+        } catch (error) {
+          console.error('Error creating draft:', error)
+        }
         
         // Update the scan item with success
         setRecentlyScanned(prev => 
@@ -108,19 +132,23 @@ export default function BarcodeScanner() {
               ? {
                   ...item,
                   status: 'success' as const,
-                  title: result.title || result.product?.title,
-                  brand: result.brand || result.product?.brand,
-                  description: result.description || result.product?.description,
-                  totalQuantity: existingProduct ? existingProduct.quantity + 1 : 1,
-                  isNewProduct: !existingProduct,
-                  message: existingProduct 
-                    ? `Added 1 more (total: ${existingProduct.quantity + 1})`
-                    : 'New product added to inventory'
+                  title: result.title,
+                  brand: result.brand,
+                  description: result.description,
+                  imageUrl: result.images?.[0]?.originalUrl || null,
+                  totalQuantity: result.quantity,
+                  isNewProduct: !isExistingProduct,
+                  productId: result.id,
+                  draftId: draftId,
+                  message: isExistingProduct 
+                    ? `✅ Product already in inventory! Added ${quantityAdded} unit(s). Total: ${result.quantity} (was: ${previousQuantity})`
+                    : `🆕 New product discovered! Added to inventory with quantity: ${result.quantity}`
                 }
               : item
           )
         )
       } else if (response.status === 404) {
+        console.log('Product not found, creating basic product')
         // Product not found but we can still add it as a basic product
         const addResponse = await fetch('/api/products', {
           method: 'POST',
@@ -132,6 +160,8 @@ export default function BarcodeScanner() {
             condition: 'New'
           })
         })
+        
+        console.log('Add product response status:', addResponse.status)
 
         if (addResponse.ok) {
           setRecentlyScanned(prev => 
@@ -152,7 +182,9 @@ export default function BarcodeScanner() {
           throw new Error('Failed to add product to inventory')
         }
       } else {
-        throw new Error('Failed to process product')
+        const errorText = await response.text()
+        console.error('Failed to process product:', response.status, errorText)
+        throw new Error(`Failed to process product: ${response.status}`)
       }
     } catch (error) {
       console.error('Error processing barcode:', error)
@@ -318,9 +350,38 @@ export default function BarcodeScanner() {
                       key={item.id}
                       className="flex items-start space-x-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
                     >
-                      <div className="flex-shrink-0 mt-1">
+                      {/* Product Thumbnail */}
+                      {item.imageUrl ? (
+                        <div className="flex-shrink-0 w-16 h-16 bg-white dark:bg-gray-600 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600">
+                          <img 
+                            src={item.imageUrl} 
+                            alt={item.title || 'Product'}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center');
+                              const icon = document.createElement('div');
+                              icon.innerHTML = '<svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
+                              e.currentTarget.parentElement?.appendChild(icon);
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex-shrink-0 w-16 h-16 bg-gray-100 dark:bg-gray-600 rounded-lg flex items-center justify-center">
+                          {item.status === 'processing' ? (
+                            <div className="w-8 h-8 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                          ) : (
+                            <Package className="w-8 h-8 text-gray-400" />
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Status Icon */}
+                      <div className="flex-shrink-0 -ml-2 -mt-1">
                         {getStatusIcon(item.status)}
                       </div>
+                      
+                      {/* Product Details */}
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
                           {item.title || `UPC: ${item.upc}`}
@@ -333,11 +394,29 @@ export default function BarcodeScanner() {
                           <p className="text-xs text-gray-400 dark:text-gray-500">
                             {new Date(item.scannedAt).toLocaleTimeString()}
                           </p>
-                          {item.totalQuantity && (
-                            <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
-                              Qty: {item.totalQuantity}
-                            </span>
-                          )}
+                          <div className="flex items-center space-x-2">
+                            {item.totalQuantity && (
+                              <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
+                                Qty: {item.totalQuantity}
+                              </span>
+                            )}
+                            {item.productId && (
+                              <Link
+                                href={`/products/${item.productId}`}
+                                className="text-xs bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 px-2 py-1 rounded hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors"
+                              >
+                                View
+                              </Link>
+                            )}
+                            {item.draftId && (
+                              <Link
+                                href={`/listings/draft/${item.draftId}`}
+                                className="text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded hover:bg-green-200 dark:hover:bg-green-800 transition-colors"
+                              >
+                                Draft
+                              </Link>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

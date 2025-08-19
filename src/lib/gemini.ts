@@ -42,28 +42,42 @@ class GeminiService {
     this.primaryModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp'
     this.fallbackModel = process.env.GEMINI_FALLBACK_MODEL || 'gemini-1.5-flash'
     
+    console.log('Gemini Service: Initializing...')
+    console.log('Gemini Service: API key present:', apiKey ? 'YES (length: ' + apiKey.length + ')' : 'NO')
+    console.log('Gemini Service: Primary model:', this.primaryModel)
+    console.log('Gemini Service: Fallback model:', this.fallbackModel)
+    
     if (apiKey && apiKey !== 'your-gemini-api-key-here') {
       this.genAI = new GoogleGenerativeAI(apiKey)
+      console.log('Gemini Service: Google Generative AI initialized successfully')
     } else {
-      console.warn('Gemini API key not configured. AI content generation will use mock data.')
+      console.warn('Gemini Service: API key not configured. AI content generation will use mock data.')
+      console.warn('Gemini Service: API key value:', apiKey || 'undefined')
     }
   }
 
   async generateProductContent(productData: ProductData): Promise<GeneratedContent> {
+    console.log('Gemini Service: generateProductContent called for UPC:', productData.upc)
+    console.log('Gemini Service: Configured:', this.isConfigured())
+    
     if (!this.genAI) {
+      console.log('Gemini Service: No API configured, using mock content')
       return this.generateMockContent(productData)
     }
 
     try {
+      console.log('Gemini Service: Trying primary model:', this.primaryModel)
       // Try primary model first
       return await this.callGemini(productData, this.primaryModel)
     } catch (error) {
-      console.warn(`Primary model ${this.primaryModel} failed, trying fallback:`, error)
+      console.warn(`Gemini Service: Primary model ${this.primaryModel} failed, trying fallback:`, error)
       try {
+        console.log('Gemini Service: Trying fallback model:', this.fallbackModel)
         // Try fallback model
         return await this.callGemini(productData, this.fallbackModel)
       } catch (fallbackError) {
-        console.error('Both Gemini models failed:', fallbackError)
+        console.error('Gemini Service: Both Gemini models failed:', fallbackError)
+        console.log('Gemini Service: Falling back to mock content')
         return this.generateMockContent(productData)
       }
     }
