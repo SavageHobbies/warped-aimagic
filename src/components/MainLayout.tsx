@@ -82,7 +82,7 @@ export default function MainLayout({ children, title, subtitle, actions, icon }:
               {/* Notifications */}
               <button className="relative p-2 rounded-lg text-muted-foreground hover:bg-accent transition-all duration-200 hover:scale-105 active:scale-95">
                 <Bell className="w-5 h-5 transform transition-transform duration-200 hover:rotate-12" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                <span className="absolute top-1 right-1 w-2 h-2 bg-destructive rounded-full animate-pulse"></span>
               </button>
 
               {/* Custom actions */}
@@ -91,8 +91,8 @@ export default function MainLayout({ children, title, subtitle, actions, icon }:
               {/* User menu */}
               <div className="relative">
                 <button className="flex items-center space-x-2 p-2 rounded-lg text-foreground hover:bg-accent transition-all duration-200 hover:scale-105 active:scale-95">
-                  <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center transition-transform duration-200 hover:scale-110">
-                    <User className="w-4 h-4 text-white" />
+                  <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center transition-transform duration-200 hover:scale-110">
+                    <User className="w-4 h-4 text-primary-foreground" />
                   </div>
                   <span className="hidden md:block text-sm font-medium transition-colors duration-200">Alex</span>
                 </button>

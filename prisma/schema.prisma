@@ -51,8 +51,27 @@ model Product {
   scanItems            ScanItem[]
   inventoryItems       InventoryItem[]
   listingDrafts        ListingDraft[]
+  itemSpecifics        Json?
+  videos               ProductVideo[]
 
   @@map("products")
+}
+
+model ProductVideo {
+  id           String   @id @default(cuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ebayVideoId  String   @unique
+  title        String
+  description  String?
+  status       String   @default("PENDING_UPLOAD") // PENDING_UPLOAD, PROCESSING, LIVE, FAILED, BLOCKED
+  size         Int
+  ebayLink     String?
+  thumbnailUrl String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("product_videos")
 }
 
 model ProductImage {

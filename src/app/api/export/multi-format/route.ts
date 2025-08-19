@@ -3,20 +3,28 @@ import { prisma } from '@/lib/prisma'
 
 // CSV utility functions
 function escapeCSVField(field: any): string {
-  if (field === null || field === undefined) return ''
-  const str = String(field)
+  if (field === null || field === undefined) {
+    return '';
+  }
+  let str = String(field);
+
+  // Check for characters that require the field to be quoted
+  const needsQuotes = str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r');
   
-  // CSV injection protection - prefix dangerous characters
+  // Handle CSV injection protection by prepending a single quote
   if (str.match(/^[=+\-@]/)) {
-    return `"'${str}"`
+    str = `'${str}`;
   }
   
-  // Quote fields containing special characters
-  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
-    return `"${str.replace(/"/g, '""')}"`
+  // If quoting is needed (either due to special characters or because we added an injection protector)
+  if (needsQuotes || str.startsWith("'")) {
+    // Escape any double quotes within the string by doubling them
+    const escapedStr = str.replace(/"/g, '""');
+    // Enclose the entire field in double quotes
+    return `"${escapedStr}"`;
   }
-  
-  return str
+
+  return str;
 }
 
 function formatPrice(price: number | null | undefined): string {
@@ -73,8 +81,8 @@ class CPIMapper implements ExportMapper {
     return [
       product.id || product.sku || '',
       product.title || '',
-      formatPrice(product.purchasePrice || product.cost || 0),
-      formatPrice(product.listingPrice || product.price || 0),
+      formatPrice(product.msrp || 0),
+      formatPrice(product.currentPrice || 0),
       product.quantity || 0,
       product.categories?.[0]?.category?.name || '',
       product.supplier || '',
@@ -124,13 +132,16 @@ class BaselinkerMapper implements ExportMapper {
       ?.slice(0, 5)
       .map((img: any) => img.originalUrl)
       .filter(Boolean)
-      .join(',') || ''
+      .join(';') || ''
     
     // Sanitize HTML from description
-    const description = (product.description || '')
+    let description = (product.description || '')
       .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-      .substring(0, 5000) // Limit description length
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+
+    if (description.length > 5000) {
+      description = description.substring(0, 4997) + '...';
+    }
     
     return [
       product.title || '',
@@ -211,7 +222,7 @@ class EbayMapper implements ExportMapper {
     
     return [
       'Add',
-      options.categoryId || '1', // Default category
+      options.categoryId || '20081', // Default "Other" category
       '1000', // New condition
       title.substring(0, 80),
       subtitle.substring(0, 55),
@@ -252,7 +263,7 @@ function generateCSV(
 ): string {
   const includeHeaders = options.includeHeaders !== false
   const delimiter = options.delimiter || ','
-  const excelFriendly = options.excelFriendly !== false
+  const excelFriendly = options.excelFriendly === true
   const lineEnding = excelFriendly ? '\r\n' : '\n'
   
   let csv = ''
@@ -293,8 +304,14 @@ function generateCSV(
 }
 
 export async function POST(request: NextRequest) {
+  let body;
   try {
-    const body = await request.json()
+    body = await request.json();
+  } catch (error) {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  }
+
+  try {
     const { format, selection, options = {} } = body
     
     // Validate format
@@ -311,36 +328,39 @@ export async function POST(request: NextRequest) {
     if (selection?.ids && Array.isArray(selection.ids)) {
       whereClause.id = { in: selection.ids }
     } else if (selection?.filters) {
-      // Build where clause from filters
-      const filters = selection.filters
-      
+      const filters = selection.filters;
+      whereClause.AND = [];
+
       if (filters.search) {
-        whereClause.OR = [
-          { title: { contains: filters.search, mode: 'insensitive' } },
-          { upc: { contains: filters.search, mode: 'insensitive' } },
-          { ean: { contains: filters.search, mode: 'insensitive' } },
-          { brand: { contains: filters.search, mode: 'insensitive' } }
-        ]
+        whereClause.AND.push({
+          OR: [
+            { title: { contains: filters.search, mode: 'insensitive' } },
+            { upc: { contains: filters.search, mode: 'insensitive' } },
+            { brand: { contains: filters.search, mode: 'insensitive' } },
+          ],
+        });
+      }
+
+      if (filters.condition) {
+        whereClause.AND.push({ condition: filters.condition });
+      }
+
+      if (filters.minStock !== undefined) {
+        whereClause.AND.push({ quantity: { gte: filters.minStock } });
       }
       
+      if (filters.maxStock !== undefined) {
+        whereClause.AND.push({ quantity: { lte: filters.maxStock } });
+      }
+
       if (filters.categoryId) {
-        whereClause.categories = {
-          some: { categoryId: filters.categoryId }
-        }
+        whereClause.AND.push({
+          categories: { some: { categoryId: filters.categoryId } },
+        });
       }
-      
-      if (filters.minStock !== undefined || filters.maxStock !== undefined) {
-        whereClause.quantity = {}
-        if (filters.minStock !== undefined) {
-          whereClause.quantity.gte = filters.minStock
-        }
-        if (filters.maxStock !== undefined) {
-          whereClause.quantity.lte = filters.maxStock
-        }
-      }
-      
+
       if (filters.updatedAfter) {
-        whereClause.updatedAt = { gte: new Date(filters.updatedAfter) }
+        whereClause.AND.push({ updatedAt: { gte: new Date(filters.updatedAfter) } });
       }
     }
     

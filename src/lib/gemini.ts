@@ -60,9 +60,9 @@ class GeminiService {
     console.log('Gemini Service: generateProductContent called for UPC:', productData.upc)
     console.log('Gemini Service: Configured:', this.isConfigured())
     
-    if (!this.genAI) {
-      console.log('Gemini Service: No API configured, using mock content')
-      return this.generateMockContent(productData)
+    if (!this.isConfigured() || !this.genAI) {
+      console.error('Gemini Service: AI content generation failed because the service is not configured. Please check your GEMINI_API_KEY.')
+      throw new Error('Gemini API key not configured. Cannot generate AI content.')
     }
 
     try {

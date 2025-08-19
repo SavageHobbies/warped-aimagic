@@ -31,7 +31,8 @@ export async function PATCH(
       funkoPop,
       isbn,
       quantity,
-      aiContent
+      aiContent,
+      itemSpecifics
     } = body
 
     // Update product and AI content if provided
@@ -40,6 +41,7 @@ export async function PATCH(
       const product = await tx.product.update({
         where: { id },
         data: {
+          itemSpecifics: itemSpecifics || undefined,
           title,
           description,
           brand,

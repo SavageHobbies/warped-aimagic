@@ -77,22 +77,33 @@ class EbayService {
     this.certId = process.env.EBAY_CERT_ID || ''
     this.environment = (process.env.EBAY_ENVIRONMENT as 'sandbox' | 'production') || 'sandbox'
     
-    console.log('eBay Service: Initializing...')
-    console.log('eBay Service: Environment:', this.environment)
-    console.log('eBay Service: App ID present:', this.appId ? 'YES' : 'NO')
-    console.log('eBay Service: Dev ID present:', this.devId ? 'YES' : 'NO')
-    console.log('eBay Service: Cert ID present:', this.certId ? 'YES' : 'NO')
+    console.log('--- eBay Service Initialization ---')
+    console.log(`Environment: ${this.environment}`)
     
-    if (!this.appId || !this.devId || !this.certId) {
-      console.error('eBay API credentials not configured properly!')
-      console.error('Missing credentials:', {
-        appId: !this.appId,
-        devId: !this.devId,
-        certId: !this.certId
-      })
+    if (!this.appId) {
+      console.error('[CRITICAL] EBAY_APP_ID is MISSING.')
     } else {
-      console.log('eBay Service: All credentials present, service ready')
+      console.log('EBAY_APP_ID: [PRESENT]')
     }
+
+    if (!this.devId) {
+      console.error('[CRITICAL] EBAY_DEV_I is MISSING.')
+    } else {
+      console.log('EBAY_DEV_ID: [PRESENT]')
+    }
+
+    if (!this.certId) {
+      console.error('[CRITICAL] EBAY_CERT_ID is MISSING.')
+    } else {
+      console.log('EBAY_CERT_ID: [PRESENT]')
+    }
+
+    if (!this.isConfigured()) {
+      console.error('eBay Service is NOT CONFIGURED due to missing credentials. eBay API calls will fail.')
+    } else {
+      console.log('eBay Service is CONFIGURED and ready.')
+    }
+    console.log('---------------------------------')
   }
 
   private getBaseUrl(): string {
@@ -350,6 +361,62 @@ class EbayService {
 
   getEnvironment(): string {
     return this.environment
+  }
+
+  async createVideo(title: string, size: number, description?: string): Promise<{ videoId: string } | null> {
+    try {
+      const token = await this.getAccessToken();
+      const response = await axios.post(
+        `${this.getBaseUrl()}/commerce/media/v1/video`,
+        {
+          title,
+          size,
+          classification: 'ITEM',
+          description,
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const locationHeader = response.headers['location'];
+      const videoId = locationHeader?.split('/').pop();
+
+      if (!videoId) {
+        throw new Error('Could not extract videoId from Location header');
+      }
+
+      return { videoId };
+    } catch (error) {
+      console.error('Failed to create eBay video resource:', error);
+      return null;
+    }
+  }
+
+  async uploadVideo(videoId: string, videoData: Buffer): Promise<boolean> {
+    try {
+      const token = await this.getAccessToken();
+      await axios.post(
+        `${this.getBaseUrl()}/commerce/media/v1/video/${videoId}/upload`,
+        videoData,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': videoData.length,
+          },
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+        }
+      );
+      return true;
+    } catch (error) {
+      console.error(`Failed to upload video ${videoId} to eBay:`, error);
+      return false;
+    }
   }
 }
 
