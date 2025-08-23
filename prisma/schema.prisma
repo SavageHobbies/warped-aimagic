@@ -25,6 +25,7 @@ model Product {
   size                  String?
   dimensions            Json?
   weight                Float?
+  weightUnit            String?  // Weight unit (g, kg, lb, oz)
   quantity              Int      @default(0)
   currency              String   @default("USD")
   lowestRecordedPrice   Float?
@@ -51,6 +52,14 @@ model Product {
   ageGroup              String?  // Target age group
   theme                 String?  // Product theme
   character             String?  // Character/franchise
+  exclusivity           String?  // Product exclusivity
+  features              String?  // Product features
+  funkoPop              Boolean? // Is Funko Pop product
+  itemHeight            Float?   // Item dimensions
+  itemLength            Float?
+  itemWidth             Float?
+  releaseDate           DateTime? // Product release date
+  series                String?  // Product series
   category              String?
   condition             String?  // "new", "used", "refurbished"
   aiGeneratedContent    Json?
