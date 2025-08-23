@@ -6,6 +6,7 @@ export interface ProductCandidate {
   description?: string
   confidence: number
   category?: string
+  upc?: string
   attributes?: Record<string, string>
 }
 
@@ -14,6 +15,7 @@ export interface VisionAnalysisResult {
   extractedText?: string
   imageDescription?: string
   suggestedCategory?: string
+  foundUPC?: string
 }
 
 class GeminiVisionService {
@@ -50,13 +52,16 @@ class GeminiVisionService {
         }
       })
 
-      const prompt = `Analyze this image and identify any products visible. For each product found:
-1. Provide the product name (be specific, include model numbers if visible)
-2. Identify the brand/manufacturer
-3. Describe the product briefly
-4. Estimate your confidence level (0-1)
-5. Suggest a product category
-6. Extract any visible text, specifications, or attributes
+      const prompt = `Analyze this image and identify any products visible. CRITICAL: Look for UPC/barcode numbers first - they are the most important identifier.
+
+For each product found:
+1. FIRST: Look carefully for any UPC/EAN/barcode numbers (12-13 digits) - check packaging, labels, stickers
+2. Provide the product name (be specific, include model numbers if visible)
+3. Identify the brand/manufacturer
+4. Describe the product briefly
+5. Estimate your confidence level (0-1)
+6. Suggest a product category
+7. Extract any visible text, specifications, or attributes
 
 Return the response in this exact JSON format:
 {
@@ -67,6 +72,7 @@ Return the response in this exact JSON format:
       "description": "Brief product description",
       "confidence": 0.9,
       "category": "Product category",
+      "upc": "UPC/barcode number if visible (PRIORITY)",
       "attributes": {
         "color": "if visible",
         "size": "if visible",
@@ -76,10 +82,11 @@ Return the response in this exact JSON format:
   ],
   "extractedText": "Any text visible in the image",
   "imageDescription": "Overall description of what's in the image",
-  "suggestedCategory": "Most likely product category"
+  "suggestedCategory": "Most likely product category",
+  "foundUPC": "UPC/barcode if clearly visible"
 }
 
-Focus on accuracy. If you're not confident about a product, indicate that with a lower confidence score.`
+Focus on accuracy and UPC extraction. If you can see a UPC/barcode, include it in both the candidate and foundUPC fields.`
 
       const imagePart = {
         inlineData: {
@@ -264,12 +271,14 @@ Keep it concise but informative (150-200 words).`
               description: c.description,
               confidence: typeof c.confidence === 'number' ? c.confidence : 0.5,
               category: c.category,
+              upc: c.upc,
               attributes: c.attributes || {}
             }))
           : [],
         extractedText: parsed.extractedText,
         imageDescription: parsed.imageDescription,
-        suggestedCategory: parsed.suggestedCategory
+        suggestedCategory: parsed.suggestedCategory,
+        foundUPC: parsed.foundUPC
       }
     } catch (error) {
       console.error('Failed to parse vision response:', error)

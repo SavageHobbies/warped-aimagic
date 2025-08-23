@@ -1,88 +1,160 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
 model Product {
-  id                   String            @id @default(cuid())
-  upc                  String            @unique
-  ean                  String?
-  gtin                 String?
-  sku                  String?           @unique
-  title                String
-  description          String?
-  brand                String?
-  model                String?
-  color                String?
-  size                 String?
-  dimensions           Json?             // {length: cm, width: cm, height: cm}
-  weight               Float?            // in grams
-  weightUnit           String            @default("g")
-  condition            String            @default("New")
-  quantity             Int               @default(0)
-  currency             String            @default("USD")
-  lowestRecordedPrice  Float?
-  highestRecordedPrice Float?
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
-  lastScanned          DateTime?
-  ageGroup             String?
-  character            String?
-  exclusivity          String?
-  features             String?
-  funkoPop             Boolean           @default(false)
-  isbn                 String?
-  itemHeight           String?
-  itemLength           String?
-  itemWidth            String?
-  material             String?
-  mpn                  String?
-  releaseDate          String?
-  series               String?
-  theme                String?
-  aiContent            AIContent?
-  offers               Offer[]
-  categories           ProductCategory[]
-  images               ProductImage[]
-  scanItems            ScanItem[]
-  inventoryItems       InventoryItem[]
-  listingDrafts        ListingDraft[]
+  id                    String   @id @default(cuid())
+  upc                   String?  @unique
+  ean                   String?
+  gtin                  String?
+  isbn                  String?  @unique
+  mpn                   String?
+  title                 String
+  description           String?
+  brand                 String?
+  model                 String?
+  color                 String?
+  size                  String?
+  dimensions            Json?
+  weight                Float?
+  quantity              Int      @default(0)
+  currency              String   @default("USD")
+  lowestRecordedPrice   Float?
+  highestRecordedPrice  Float?
+  lastScanned           DateTime?
+  
+  // Relations
+  images                ProductImage[]
+  offers                Offer[]
+  categories            ProductCategory[]
+  listings              Listing[]
+  drafts                Draft[]
+  
+  // Legacy fields for compatibility
+  name                  String?  // alias for title
+  sku                   String?  @unique
+  barcode               String?
+  price                 Float?
+  cost                  Float?
+  category              String?
+  condition             String?  // "new", "used", "refurbished"
+  aiGeneratedContent    Json?
+  metadata              Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@map("products")
 }
 
 model ProductImage {
-  id           String   @id @default(cuid())
+  id           String  @id @default(cuid())
   productId    String
   imageNumber  Int
-  originalUrl  String?
-  localPath    String?
-  uploadStatus String   @default("pending")
-  metadata     String?
+  originalUrl  String
+  uploadStatus String  @default("pending")
+  url          String?
+  altText      String?
+  isPrimary    Boolean @default(false)
+  product      Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  @@unique([productId, imageNumber])
   @@map("product_images")
 }
 
+model Listing {
+  id          String      @id @default(cuid())
+  productId   String
+  platform    String      // "ebay", "amazon", "mercari", etc.
+  platformId  String?     // External platform listing ID
+  title       String
+  description String?
+  price       Float
+  quantity    Int         @default(1)
+  status      ListingStatus @default(DRAFT)
+  publishedAt DateTime?
+  endDate     DateTime?
+  views       Int         @default(0)
+  watchers    Int         @default(0)
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("listings")
+}
+
+model Draft {
+  id          String    @id @default(cuid())
+  productId   String?
+  title       String?
+  description String?
+  price       Float?
+  platform    String?   // Target platform
+  templateData Json?     // CPI template data, eBay data, etc.
+  notes       String?
+  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("drafts")
+}
+
+model ScanSession {
+  id        String   @id @default(cuid())
+  sessionId String   @unique
+  data      Json?    // Temporary scan data
+  status    String   @default("active") // "active", "completed", "expired"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("scan_sessions")
+}
+
+enum ListingStatus {
+  DRAFT
+  ACTIVE
+  SOLD
+  ENDED
+  CANCELLED
+}
+
+model Offer {
+  id           String   @id @default(cuid())
+  productId    String
+  merchant     String?
+  domain       String?
+  title        String?
+  price        Float?
+  listPrice    Float?
+  currency     String   @default("USD")
+  shipping     String?
+  condition    String?
+  availability String?
+  link         String?
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("offers")
+}
+
 model Category {
-  id         String            @id @default(cuid())
-  type       String
-  categoryId String?
-  name       String
-  fullPath   String
-  parentId   String?
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
-  parent     Category?         @relation("CategoryHierarchy", fields: [parentId], references: [id])
-  children   Category[]        @relation("CategoryHierarchy")
-  products   ProductCategory[]
+  id          String   @id @default(cuid())
+  type        String   // "google", "ebay", etc.
+  categoryId  String
+  name        String
+  fullPath    String?
+  products    ProductCategory[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@unique([type, categoryId])
   @@map("categories")
@@ -93,190 +165,52 @@ model ProductCategory {
   productId  String
   categoryId String
   isPrimary  Boolean  @default(false)
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
 
   @@unique([productId, categoryId])
   @@map("product_categories")
 }
 
-model Offer {
-  id           String   @id @default(cuid())
-  productId    String
-  merchant     String
-  domain       String?
-  title        String?
-  price        Float?
-  listPrice    Float?
-  currency     String   @default("USD")
-  shipping     String?
-  condition    String?
-  availability String?
-  link         String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@map("offers")
-}
-
-model AIContent {
-  id                   String    @id @default(cuid())
-  productId            String    @unique
-  seoTitle             String?
-  seoDescription       String?
-  productDescription   String?
-  bulletPoints         String?
-  tags                 String?
-  category             String?
-  specifications       String?
-  marketingCopy        String?
-  ebayTitle            String?
-  shortDescription     String?
-  uniqueSellingPoints  String?
-  keyFeatures          String?
-  specificationsArray  String?
-  itemSpecifics        String?
-  additionalAttributes String?
-  status               String    @default("pending")
-  aiModel              String?
-  generatedAt          DateTime?
-  processingTime       Int?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  product              Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@map("ai_content")
-}
-
-model ScanSession {
-  id          String     @id @default(cuid())
-  name        String?
-  status      String     @default("active")
-  totalItems  Int        @default(0)
-  uniqueItems Int        @default(0)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  completedAt DateTime?
-  items       ScanItem[]
-
-  @@map("scan_sessions")
-}
-
-model ScanItem {
-  id        String      @id @default(cuid())
-  sessionId String
-  productId String
-  quantity  Int         @default(1)
-  scannedAt DateTime    @default(now())
-  product   Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
-  session   ScanSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-
-  @@unique([sessionId, productId])
-  @@map("scan_items")
-}
-
 model ApiLog {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   service      String
-  endpoint     String?
-  method       String   @default("GET")
-  statusCode   Int?
+  endpoint     String
+  method       String
+  statusCode   Int
   requestData  String?
   responseData String?
   errorMessage String?
-  duration     Int?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
   @@map("api_logs")
 }
 
-model Settings {
+model CategoryTemplate {
+  id              String   @id @default(cuid())
+  categoryKey     String   // e.g., 'funko_pops', 'womens_clothing'
+  templateName    String   // e.g., 'Standard Funko', 'My Funko Defaults'
+  templateData    Json     // Item specifics values
+  isDefault       Boolean  @default(false)
+  isSystemDefault Boolean  @default(false) // Built-in system templates
+  userId          String?  // null for system templates
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([categoryKey, templateName, userId])
+  @@map("category_templates")
+}
+
+model UserPreference {
   id          String   @id @default(cuid())
-  key         String   @unique
-  value       Json
-  type        String   @default("string")
-  description String?
-  isEncrypted Boolean  @default(false)
+  userId      String   // User identifier (could be session-based for now)
+  categoryKey String   
+  fieldName   String   // Item specific field name
+  defaultValue String  // Default value for this field
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@map("settings")
-}
-
-model InventoryItem {
-  id         String   @id @default(cuid())
-  productId  String
-  quantity   Int      @default(1)
-  location   String?  // warehouse location
-  bin        String?  // bin/shelf identifier
-  notes      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@unique([productId, location, bin])
-  @@map("inventory_items")
-}
-
-model ListingDraft {
-  id                  String    @id @default(cuid())
-  productId           String
-  marketplace         String    @default("EBAY") // EBAY, BASELINKER, AMAZON, etc
-  siteId              Int       @default(0) // eBay site ID (0=US, 3=UK, 77=DE, etc)
-  categoryId          String?   // marketplace category ID
-  conditionId         Int?      // eBay condition ID
-  price               Decimal   @db.Decimal(10, 2)
-  quantity            Int       @default(1)
-  format              String    @default("FIXED_PRICE") // FIXED_PRICE, AUCTION
-  duration            String    @default("GTC") // GTC (Good Till Cancelled), DAYS_7, etc
-  shippingProfileId   String?   // eBay business policy ID
-  returnProfileId     String?   // eBay business policy ID
-  paymentProfileId    String?   // eBay business policy ID
-  status              String    @default("draft") // draft, ready, publishing, published, error, archived
-  ebayOfferId         String?   // eBay offer ID after creation
-  ebayListingId       String?   // eBay listing ID after publishing
-  baselinkerListingId String?   // BaseLinker listing ID
-  errorMessage        String?
-  publishedAt         DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-  product             Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@index([status, marketplace])
-  @@map("listing_drafts")
-}
-
-model IntegrationToken {
-  id           String    @id @default(cuid())
-  provider     String    // EBAY, BASELINKER, etc
-  accountId    String?   // account identifier
-  environment  String    @default("production") // sandbox, production
-  accessToken  String    @db.Text
-  refreshToken String?   @db.Text
-  scope        String?   @db.Text
-  expiresAt    DateTime?
-  metadata     Json?     // additional provider-specific data
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  @@unique([provider, accountId, environment])
-  @@map("integration_tokens")
-}
-
-model ListingTemplate {
-  id                String   @id @default(cuid())
-  name              String
-  marketplace       String   @default("EBAY")
-  isDefault         Boolean  @default(false)
-  shippingProfileId String?
-  returnProfileId   String?
-  paymentProfileId  String?
-  duration          String   @default("GTC")
-  format            String   @default("FIXED_PRICE")
-  settings          Json?    // marketplace-specific settings
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  @@map("listing_templates")
+  @@unique([userId, categoryKey, fieldName])
+  @@map("user_preferences")
 }

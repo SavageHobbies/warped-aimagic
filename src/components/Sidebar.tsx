@@ -82,7 +82,7 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed = false, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname()
-  const { theme } = useTheme()
+  const { theme, mounted } = useTheme()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const isActive = (href: string) => {

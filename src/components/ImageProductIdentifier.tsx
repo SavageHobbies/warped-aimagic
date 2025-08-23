@@ -15,6 +15,7 @@ interface ProductCandidate {
   description?: string
   confidence: number
   category?: string
+  upc?: string
   attributes?: Record<string, string>
   imageUrl?: string
 }
@@ -126,39 +127,153 @@ export default function ImageProductIdentifier({
     setError(null)
 
     try {
-      // Search for product using the identified name and brand
-      const searchQuery = candidate.brand 
-        ? `${candidate.brand} ${candidate.name}`
-        : candidate.name
-
-      const response = await fetch('/api/products/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: searchQuery,
-          category: candidate.category
-        })
-      })
-
-      if (!response.ok) {
-        throw new Error('Product search failed')
+      // PRIORITY 1: Check if UPC was found during initial product identification
+      let upcToUse: string | null = candidate.upc || null
+      
+      console.log('UPC Analysis:')
+      console.log('- UPC from AI product identification:', candidate.upc)
+      
+      // PRIORITY 2: If no UPC from product identification, try to extract from image
+      if (!upcToUse && imagePreview) {
+        console.log('- No UPC from product ID, extracting from image...')
+        try {
+          const textResponse = await fetch('/api/vision/extract-text', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image: imagePreview.split(',')[1], // Remove data:image/jpeg;base64, prefix
+              mimeType: 'image/jpeg'
+            })
+          })
+          
+          if (textResponse.ok) {
+            const textResult = await textResponse.json()
+            upcToUse = textResult.barcode || null
+            console.log('- UPC from text extraction:', upcToUse)
+          }
+        } catch (err) {
+          console.log('- Text extraction failed:', err)
+        }
       }
 
-      const productData = await response.json()
+      // If we have a UPC (from either source), use the standard product lookup API
+      if (upcToUse) {
+        console.log(`✅ Using UPC as source of truth: ${upcToUse}`)
+        
+        const response = await fetch('/api/products/lookup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            upc: upcToUse,
+            addToInventory: true,
+            quantity: 1
+          })
+        })
+
+        if (response.ok) {
+          const result = await response.json()
+          
+          // Enrich UPC-based data with AI-identified insights
+          const enrichedData = {
+            ...result,
+            aiDescription: candidate.description,
+            aiCategory: candidate.category,
+            aiAttributes: candidate.attributes,
+            aiConfidence: candidate.confidence,
+            identificationMethod: candidate.upc ? 'ai_with_upc' : 'image_with_extracted_upc',
+            aiExtractedBrand: candidate.brand,
+            message: `✅ Product found via UPC and added to inventory! Enhanced with AI insights. Confidence: ${Math.round(candidate.confidence * 100)}%`
+          }
+
+          onProductIdentified(enrichedData)
+          return
+        } else {
+          console.log('UPC lookup failed, falling back to AI-only creation')
+        }
+      } else {
+        console.log('⚠️ No UPC found - using AI-only product creation as fallback')
+      }
+
+      // If no UPC found or UPC lookup failed, try to add product with AI-identified information
+      console.log('Adding product using AI-identified information')
       
-      // Enrich with AI-identified data if needed
+      // Generate a unique identifier for products without UPC
+      const generatedId = `IMG-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      
+      // Create product with AI-identified information
+      const productData = {
+        sku: generatedId, // Use SKU as identifier since UPC/EAN/GTIN not available
+        title: candidate.name,
+        brand: candidate.brand,
+        description: candidate.description,
+        category: candidate.category,
+        condition: 'New', // Default condition
+        quantity: 1,
+        
+        // Store AI metadata
+        aiGeneratedContent: {
+          confidence: candidate.confidence,
+          extractedFromImage: true,
+          attributes: candidate.attributes,
+          imageAnalysisDate: new Date().toISOString()
+        }
+      }
+
+      const addResponse = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(productData)
+      })
+
+      if (!addResponse.ok) {
+        throw new Error('Failed to add product to inventory')
+      }
+
+      const newProduct = await addResponse.json()
+      
+      // Try to create a listing draft for the new product
+      try {
+        const draftResponse = await fetch('/api/listings/drafts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productId: newProduct.id,
+            marketplace: 'EBAY',
+            price: 0, // No price information from image
+            quantity: 1
+          })
+        })
+        
+        if (draftResponse.ok) {
+          const draft = await draftResponse.json()
+          newProduct.draftId = draft.id
+        }
+      } catch (error) {
+        console.error('Error creating draft:', error)
+      }
+
+      // Enrich with identification metadata
       const enrichedData = {
-        ...productData,
+        ...newProduct,
         aiDescription: candidate.description,
         aiCategory: candidate.category,
         aiAttributes: candidate.attributes,
-        confidence: candidate.confidence
+        aiConfidence: candidate.confidence,
+        identificationMethod: 'image_only',
+        isNewProduct: true,
+        message: `✨ Product identified from image and added to inventory! Confidence: ${Math.round(candidate.confidence * 100)}%`
       }
 
       onProductIdentified(enrichedData)
+      
     } catch (err) {
-      console.error('Product search error:', err)
-      setError('Failed to find product details. You can try another candidate or add manually.')
+      console.error('Product processing error:', err)
+      setError(
+        err instanceof Error 
+          ? err.message 
+          : 'Failed to add product to inventory. You can try another candidate or add manually.'
+      )
+      setStep('selecting') // Go back to selection to try another candidate
     } finally {
       setIsSearching(false)
     }
@@ -186,7 +301,7 @@ export default function ImageProductIdentifier({
     <div className="space-y-6">
       {/* Step Indicator */}
       <div className="flex items-center justify-center space-x-2">
-        {['Upload', 'Analyze', 'Select', 'Confirm'].map((label, index) => {
+        {['Upload', 'Analyze', 'Select', 'Add to Inventory'].map((label, index) => {
           const isActive = 
             (step === 'upload' && index === 0) ||
             (step === 'analyzing' && index === 1) ||
@@ -316,7 +431,7 @@ export default function ImageProductIdentifier({
             Analyzing your image...
           </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Our AI is identifying products in your image
+            Our AI is identifying products and extracting UPC codes from your image
           </p>
           {imagePreview && (
             <div className="mt-6 flex justify-center">
@@ -338,7 +453,7 @@ export default function ImageProductIdentifier({
               We found {candidates.length} possible match{candidates.length > 1 ? 'es' : ''}
             </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Select the correct product below
+              Select the correct product and we'll add it to your inventory using the UPC as the source of truth
             </p>
           </div>
 
@@ -356,6 +471,12 @@ export default function ImageProductIdentifier({
                   {candidates[selectedCandidate].brand && (
                     <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
                       <span className="font-medium">Brand:</span> {candidates[selectedCandidate].brand}
+                    </p>
+                  )}
+                  
+                  {candidates[selectedCandidate].upc && (
+                    <p className="text-sm text-emerald-600 dark:text-emerald-400 mb-1 font-medium">
+                      <span className="font-medium">✅ UPC Found:</span> {candidates[selectedCandidate].upc}
                     </p>
                   )}
                   
@@ -438,16 +559,17 @@ export default function ImageProductIdentifier({
               variant="primary" 
               onClick={handleProductSearch}
               disabled={isSearching}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
             >
               {isSearching ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Searching...
+                  Adding to Inventory...
                 </>
               ) : (
                 <>
-                  <Search className="w-4 h-4 mr-2" />
-                  Find Product Details
+                  <Package className="w-4 h-4 mr-2" />
+                  Add to Inventory
                 </>
               )}
             </Button>
@@ -463,15 +585,18 @@ export default function ImageProductIdentifier({
         </div>
       )}
 
-      {/* Searching Section */}
+      {/* Adding to Inventory Section */}
       {step === 'searching' && (
         <div className="text-center py-12">
-          <Loader2 className="w-16 h-16 text-emerald-500 animate-spin mx-auto mb-6" />
+          <div className="relative inline-block mb-6">
+            <Loader2 className="w-16 h-16 text-emerald-500 animate-spin" />
+            <Package className="w-6 h-6 text-yellow-500 absolute -top-2 -right-2 animate-pulse" />
+          </div>
           <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-            Finding product details...
+            Adding product to inventory...
           </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Searching our database for &quot;{candidates[selectedCandidate]?.name}&quot;
+            Looking up "{candidates[selectedCandidate]?.name}" via UPC and gathering comprehensive product details
           </p>
         </div>
       )}

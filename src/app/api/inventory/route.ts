@@ -20,7 +20,8 @@ export async function GET() {
             category: true
           }
         },
-        aiContent: true
+        listings: true,
+        drafts: true
       },
       orderBy: {
         updatedAt: 'desc'

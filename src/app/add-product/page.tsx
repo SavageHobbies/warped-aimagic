@@ -53,6 +53,25 @@ export default function AddProductPage() {
   const handleProductIdentified = async (productData: Record<string, unknown>) => {
     try {
       setIsProcessing(true)
+      
+      // Check if the product was already created by the component (has an id)
+      if (productData.id) {
+        // Product already exists, just navigate to it
+        const productId = productData.id as string
+        const productTitle = productData.title as string || 'Unknown Product'
+        
+        setNotification({
+          type: 'success',
+          message: productData.message as string || `Product "${productTitle}" added successfully!`
+        })
+        
+        setTimeout(() => {
+          router.push(`/products/${productId}`)
+        }, 1500)
+        return
+      }
+      
+      // Fallback: create product if not already created
       const response = await fetch('/api/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -64,13 +83,13 @@ export default function AddProductPage() {
       
       if (response.ok) {
         const result = await response.json()
-        const product = result.product // Extract product from response
+        const product = result.product || result // Handle different response formats
         setNotification({
           type: 'success',
           message: `Product "${product.title}" added successfully!`
         })
         setTimeout(() => {
-          router.push(`/inventory/${product.id}`)
+          router.push(`/products/${product.id}`)
         }, 1500)
       } else {
         throw new Error('Failed to add product')

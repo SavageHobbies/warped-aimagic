@@ -5,6 +5,21 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  return updateProduct(request, params)
+}
+
+// Alias for PATCH to support PUT requests
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  return updateProduct(request, params)
+}
+
+async function updateProduct(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     const body = await request.json()
     const { id } = await params
@@ -70,55 +85,17 @@ export async function PATCH(
             include: {
               category: true
             }
-          },
-          aiContent: true
+          }
         }
       })
 
       // Update AI content if provided
       if (aiContent && typeof aiContent === 'object') {
-        const aiContentData = {
-          seoTitle: aiContent.seoTitle || undefined,
-          ebayTitle: aiContent.ebayTitle || undefined,
-          shortDescription: aiContent.shortDescription || undefined,
-          productDescription: aiContent.productDescription || undefined,
-          updatedAt: new Date()
-        }
-
-        // Check if AI content exists for this product
-        const existingAIContent = await tx.aIContent.findUnique({
-          where: { productId: id }
-        })
-
-        if (existingAIContent) {
-          // Update existing AI content
-          await tx.aIContent.update({
-            where: { productId: id },
-            data: aiContentData
-          })
-        } else if (Object.values(aiContentData).some(value => value && value.trim())) {
-          // Create new AI content only if at least one field has content
-          await tx.aIContent.create({
-            data: {
-              productId: id,
-              status: 'completed',
-              ...aiContentData
-            }
-          })
-        }
-
-        // Fetch the updated product with AI content
-        return await tx.product.findUnique({
+        // Store AI content in the aiGeneratedContent JSON field for now
+        await tx.product.update({
           where: { id },
-          include: {
-            images: true,
-            offers: true,
-            categories: {
-              include: {
-                category: true
-              }
-            },
-            aiContent: true
+          data: {
+            aiGeneratedContent: aiContent
           }
         })
       }
@@ -160,8 +137,7 @@ export async function GET(
           include: {
             category: true
           }
-        },
-        aiContent: true
+        }
       }
     })
 

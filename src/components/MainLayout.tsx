@@ -15,7 +15,7 @@ interface MainLayoutProps {
 
 export default function MainLayout({ children, title, subtitle, actions, icon }: MainLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const { theme, toggleTheme } = useTheme()
+  const { theme, toggleTheme, mounted } = useTheme()
 
   return (
     <div className="flex h-screen bg-background">
@@ -63,19 +63,24 @@ export default function MainLayout({ children, title, subtitle, actions, icon }:
                 <input
                   type="text"
                   placeholder="Search products..."
-                  className="pl-10 pr-4 py-2 border border-input rounded-lg bg-background text-foreground focus:ring-2 focus:ring-ring focus:border-primary w-64 transition-all duration-200 hover:border-muted-foreground"
+                  className="pl-12 pr-4 py-2 border border-input rounded-lg bg-background text-foreground focus:ring-2 focus:ring-ring focus:border-primary w-64 transition-all duration-200 hover:border-muted-foreground"
                 />
               </div>
 
               {/* Theme toggle */}
               <button
                 onClick={toggleTheme}
-                className="p-2 rounded-lg text-muted-foreground hover:bg-accent transition-all duration-200 hover:scale-105 active:scale-95"
+                disabled={!mounted}
+                className="p-2 rounded-lg text-muted-foreground hover:bg-accent transition-all duration-200 hover:scale-105 active:scale-95 disabled:opacity-50"
               >
-                {theme === 'dark' ? (
-                  <Sun className="w-5 h-5 transform transition-transform duration-300 hover:rotate-180" />
+                {mounted ? (
+                  theme === 'dark' ? (
+                    <Sun className="w-5 h-5 transform transition-transform duration-300 hover:rotate-180" />
+                  ) : (
+                    <Moon className="w-5 h-5 transform transition-transform duration-300 hover:rotate-12" />
+                  )
                 ) : (
-                  <Moon className="w-5 h-5 transform transition-transform duration-300 hover:rotate-12" />
+                  <div className="w-5 h-5" /> // Placeholder to maintain layout
                 )}
               </button>
 

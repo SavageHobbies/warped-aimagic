@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
       upc,
       ean,
       gtin,
+      isbn,
       sku,
       title,
       description,
@@ -38,7 +39,6 @@ export async function POST(request: NextRequest) {
       exclusivity,
       features,
       funkoPop,
-      isbn,
       itemHeight,
       itemLength,
       itemWidth,
@@ -52,10 +52,10 @@ export async function POST(request: NextRequest) {
       confidence
     } = body
 
-    // Validate required fields
-    if (!upc && !ean && !gtin && !isbn) {
+    // Validate required fields - allow SKU for image-identified products
+    if (!upc && !ean && !gtin && !isbn && !sku) {
       return NextResponse.json(
-        { error: 'At least one identifier (UPC, EAN, GTIN, or ISBN) is required' },
+        { error: 'At least one identifier (UPC, EAN, GTIN, ISBN, or SKU) is required' },
         { status: 400 }
       )
     }
@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
     if (ean) orConditions.push({ ean })
     if (gtin) orConditions.push({ gtin })
     if (isbn) orConditions.push({ isbn })
+    if (sku) orConditions.push({ sku })
 
     const existingProduct = orConditions.length > 0
       ? await prisma.product.findFirst({
