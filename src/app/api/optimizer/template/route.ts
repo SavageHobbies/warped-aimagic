@@ -3,8 +3,35 @@ import { prisma } from '@/lib/prisma'
 import path from 'path'
 import fs from 'fs/promises'
 
+// Template data interface
+interface TemplateData {
+  title: string
+  description: string
+  brand?: string
+  model?: string
+  upc?: string
+  condition: string
+  images: string[]
+  features: string[]
+  specifications: Record<string, any>
+  price: number
+  shipping: {
+    handling_time: number
+    shipping_service: string
+    shipping_cost: number
+  }
+}
+
+interface MarketData {
+  suggestedPrice?: number
+  priceRange?: {
+    min?: number
+    max?: number
+  }
+}
+
 // Dynamic import for the optimizer module
-async function generateEbayTemplate(product: any, marketData?: any) {
+async function generateEbayTemplate(product: any, marketData?: MarketData): Promise<string> {
   try {
     // Try to load the optimizer's template renderer
     const optimizerPath = path.join(process.cwd(), 'optimizer', 'src', 'services', 'TemplateRenderer.js')
@@ -21,16 +48,16 @@ async function generateEbayTemplate(product: any, marketData?: any) {
     const renderer = new TemplateRenderer()
     
     // Prepare template data
-    const templateData = {
-      title: product.aiContent?.ebayTitle || product.title || `${product.brand} ${product.model}`.trim(),
+    const templateData: TemplateData = {
+      title: product.aiContent?.ebayTitle || product.title || `${product.brand || ''} ${product.model || ''}`.trim() || 'Product',
       description: product.aiContent?.productDescription || product.description || '',
-      brand: product.brand,
-      model: product.model,
-      upc: product.upc,
+      brand: product.brand || undefined,
+      model: product.model || undefined,
+      upc: product.upc || undefined,
       condition: product.condition || 'New',
       images: product.images.map((img: any) => img.originalUrl).filter(Boolean),
       features: [],
-      specifications: {},
+      specifications: {} as Record<string, any>,
       price: product.listingPrice || marketData?.suggestedPrice || 0,
       shipping: {
         handling_time: 1,
@@ -42,10 +69,26 @@ async function generateEbayTemplate(product: any, marketData?: any) {
     // Add features from AI content
     if (product.aiContent) {
       if (product.aiContent.keyFeatures) {
-        templateData.features = product.aiContent.keyFeatures.split(',').map((f: string) => f.trim())
+        try {
+          const keyFeatures = typeof product.aiContent.keyFeatures === 'string' 
+            ? JSON.parse(product.aiContent.keyFeatures)
+            : product.aiContent.keyFeatures
+          if (Array.isArray(keyFeatures)) {
+            templateData.features.push(...keyFeatures)
+          } else if (typeof keyFeatures === 'string') {
+            templateData.features.push(...keyFeatures.split(',').map((f: string) => f.trim()))
+          }
+        } catch {
+          // If JSON parsing fails, treat as comma-separated string
+          if (typeof product.aiContent.keyFeatures === 'string') {
+            templateData.features.push(...product.aiContent.keyFeatures.split(',').map((f: string) => f.trim()))
+          }
+        }
       }
-      if (product.aiContent.ebayBulletPoints) {
-        templateData.features.push(...product.aiContent.ebayBulletPoints.split('\n').filter(Boolean))
+      if (product.aiContent.ebayTitle && typeof product.aiContent.ebayTitle === 'string') {
+        // Use ebayTitle for additional features if available
+        const titleFeatures = product.aiContent.ebayTitle.split(' ').filter((word: string) => word.length > 3)
+        templateData.features.push(...titleFeatures.slice(0, 3)) // Add up to 3 title keywords
       }
     }
 
@@ -71,7 +114,7 @@ async function generateEbayTemplate(product: any, marketData?: any) {
 }
 
 // Fallback template generator
-function generateFallbackTemplate(product: any, marketData?: any) {
+function generateFallbackTemplate(product: any, marketData?: MarketData): string {
   const title = product.aiContent?.ebayTitle || product.title || `${product.brand} ${product.model}`.trim()
   const description = product.aiContent?.productDescription || product.description || 'Product Description'
   
@@ -245,7 +288,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check for recent market research
-    let marketData = null
+    let marketData: MarketData | undefined = undefined
     try {
       const marketResearch = await prisma.marketResearch.findFirst({
         where: { 
@@ -259,10 +302,10 @@ export async function POST(request: NextRequest) {
       
       if (marketResearch) {
         marketData = {
-          suggestedPrice: marketResearch.suggestedPrice,
+          suggestedPrice: marketResearch.suggestedPrice || undefined,
           priceRange: {
-            min: marketResearch.priceRangeMin,
-            max: marketResearch.priceRangeMax
+            min: marketResearch.priceRangeMin || undefined,
+            max: marketResearch.priceRangeMax || undefined
           }
         }
       }

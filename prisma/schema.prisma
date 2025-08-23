@@ -38,6 +38,7 @@ model Product {
   listings              Listing[]
   drafts                Draft[]
   aiContent             AIContent?
+  marketResearch        MarketResearch[]
   
   // Legacy fields for compatibility
   name                  String?  // alias for title
@@ -45,6 +46,11 @@ model Product {
   barcode               String?
   price                 Float?
   cost                  Float?
+  listingPrice          Float?   // Intended selling price
+  material              String?  // Product material
+  ageGroup              String?  // Target age group
+  theme                 String?  // Product theme
+  character             String?  // Character/franchise
   category              String?
   condition             String?  // "new", "used", "refurbished"
   aiGeneratedContent    Json?
@@ -243,4 +249,20 @@ model AIContent {
   updatedAt            DateTime @updatedAt
 
   @@map("ai_content")
+}
+
+model MarketResearch {
+  id               String   @id @default(cuid())
+  productId        String
+  suggestedPrice   Float?
+  priceRangeMin    Float?
+  priceRangeMax    Float?
+  competitorCount  Int?
+  researchData     Json?    // Raw research data
+  researchedAt     DateTime @default(now())
+  product          Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("market_research")
 }
