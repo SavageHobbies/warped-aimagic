@@ -83,18 +83,18 @@ export async function POST(request: NextRequest) {
 
         // Prepare product data for Gemini
         const productData: ProductData = {
-          upc: product.upc,
+          upc: product.upc || 'NO_UPC',
           title: product.title || undefined,
           description: product.description || undefined,
           brand: product.brand || undefined,
           category: product.categories[0]?.category.fullPath || undefined,
           color: product.color || undefined,
           size: product.size || undefined,
-          weight: product.weight ? `${product.weight}${product.weightUnit || 'g'}` : undefined,
+          weight: product.weight ? `${product.weight}g` : undefined,
           lowestPrice: product.lowestRecordedPrice || undefined,
           highestPrice: product.highestRecordedPrice || undefined,
           offers: product.offers.map(offer => ({
-            merchant: offer.merchant,
+            merchant: offer.merchant || 'Unknown',
             price: offer.price || undefined,
             condition: offer.condition || undefined
           })),

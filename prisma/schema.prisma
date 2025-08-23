@@ -37,6 +37,7 @@ model Product {
   categories            ProductCategory[]
   listings              Listing[]
   drafts                Draft[]
+  aiContent             AIContent?
   
   // Legacy fields for compatibility
   name                  String?  // alias for title
@@ -213,4 +214,33 @@ model UserPreference {
 
   @@unique([userId, categoryKey, fieldName])
   @@map("user_preferences")
+}
+
+model AIContent {
+  id                    String   @id @default(cuid())
+  productId             String   @unique
+  seoTitle              String?
+  seoDescription        String?
+  productDescription    String?
+  bulletPoints          String?  // JSON string
+  tags                  String?  // JSON string
+  category              String?
+  specifications        String?  // JSON string
+  marketingCopy         String?
+  ebayTitle            String?
+  shortDescription      String?
+  uniqueSellingPoints   String?  // JSON string
+  keyFeatures          String?  // JSON string
+  specificationsArray   String?  // JSON string
+  itemSpecifics        String?  // JSON string
+  additionalAttributes String?  // JSON string
+  status               String   @default("pending") // pending, processing, completed, failed
+  aiModel              String?
+  generatedAt          DateTime?
+  processingTime       Int?
+  product              Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("ai_content")
 }
