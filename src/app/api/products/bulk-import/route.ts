@@ -390,11 +390,13 @@ export async function POST(request: NextRequest) {
     })
     
     if (problematicRows.length > 0) {
-      console.warn(`⚠️ Found ${problematicRows.length} rows with column count mismatches:`)
-      problematicRows.slice(0, 5).forEach(prob => {
-        console.warn(`  Row ${prob.row}: Expected ${prob.expected} columns, got ${prob.actual}`)
-        console.warn(`    First 3 fields: ["${prob.data.slice(0, 3).join('", "')}"]`)
+      console.warn(`⚠️ Found ${problematicRows.length} rows with column count variations (will be handled gracefully):`)
+      problematicRows.slice(0, 3).forEach(prob => {
+        console.warn(`  Row ${prob.row}: Expected ${prob.expected} columns, got ${prob.actual} (will pad/truncate as needed)`)
       })
+      if (problematicRows.length > 3) {
+        console.warn(`  ... and ${problematicRows.length - 3} more rows with similar issues`)
+      }
     }
     
     const result: ImportResult = {
@@ -410,13 +412,23 @@ export async function POST(request: NextRequest) {
     
     // Process each row
     for (let i = 0; i < dataRows.length; i++) {
-      const row = dataRows[i]
+      let row = dataRows[i] // Changed from const to let to allow reassignment
       const rowNumber = i + 2 // +2 because we skip header and array is 0-based
       
       try {
-        // Validate row structure before processing
+        // Log column count differences but don't fail the import
         if (row.length !== headers.length) {
-          throw new Error(`Column count mismatch: expected ${headers.length}, got ${row.length}. This may indicate malformed CSV data with unescaped commas or quotes.`)
+          console.warn(`⚠️ Row ${rowNumber}: Column count difference: expected ${headers.length}, got ${row.length}. Continuing with available data.`)
+          
+          // Pad row with empty strings if it's too short
+          while (row.length < headers.length) {
+            row.push('')
+          }
+          
+          // Truncate row if it's too long
+          if (row.length > headers.length) {
+            row = row.slice(0, headers.length)
+          }
         }
         
         // Skip empty rows more thoroughly
@@ -581,14 +593,13 @@ export async function POST(request: NextRequest) {
         
       } catch (error) {
         console.error(`❌ Error processing row ${rowNumber}:`, error)
-        console.error(`Row data (first 10 fields): [${row.slice(0, 10).map(r => `"${r?.substring(0, 30)}${r?.length > 30 ? '...' : ''}"`).join(', ')}]`)
         
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
         
         result.errors.push({
           row: rowNumber,
-          error: `${errorMessage}${row.length !== headers.length ? ` (Column mismatch: ${row.length}/${headers.length})` : ''}`,
-          data: row.slice(0, 5) // Only include first 5 fields to avoid huge error objects
+          error: errorMessage,
+          data: row.slice(0, 3) // Only include first 3 fields to avoid huge error objects
         })
         
         // Continue processing other rows even if one fails
