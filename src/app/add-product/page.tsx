@@ -8,8 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import BarcodeScanner from '@/components/BarcodeScanner'
 import ImageProductIdentifier from '@/components/ImageProductIdentifier'
 import { 
-  Plus, Scan, Upload, Edit, Package2, FileUp, Sparkles,
-  Camera, Hash, Image as ImageIcon, FileText, ArrowLeft,
+  Plus, Scan, Upload, Edit, FileUp, Sparkles,
+  Camera, FileText, ArrowLeft,
   CheckCircle, AlertCircle, Loader2, X
 } from 'lucide-react'
 
@@ -21,6 +21,9 @@ export default function AddProductPage() {
     type: 'success' | 'error' | 'info'
     message: string
   } | null>(null)
+  const bulkFileInputRef = useRef<HTMLInputElement>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [isProcessingFile, setIsProcessingFile] = useState(false)
   
   const [manualData, setManualData] = useState({
     title: '',
@@ -108,9 +111,142 @@ export default function AddProductPage() {
   const handleBulkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      // Validate file type
+      const allowedTypes = ['.csv', '.xlsx', '.xls']
+      const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase()
+      
+      if (!allowedTypes.includes(fileExtension)) {
+        setNotification({
+          type: 'error',
+          message: 'Please select a CSV or Excel file (.csv, .xlsx, .xls)'
+        })
+        return
+      }
+      
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        setNotification({
+          type: 'error',
+          message: 'File size must be less than 10MB'
+        })
+        return
+      }
+      
+      setSelectedFile(file)
+      setNotification({
+        type: 'info',
+        message: `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`
+      })
       console.log('Processing CSV/Excel file:', file)
       // TODO: Implement bulk CSV/Excel import
     }
+  }
+
+  const handleProcessFile = async () => {
+    if (!selectedFile) return
+    
+    setIsProcessingFile(true)
+    setNotification({
+      type: 'info',
+      message: 'Processing file...'
+    })
+    
+    try {
+      // Create FormData for file upload
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      
+      const response = await fetch('/api/products/bulk-import', {
+        method: 'POST',
+        body: formData
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Upload failed')
+      }
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        setNotification({
+          type: 'success',
+          message: `Import completed! ${result.result.created} products created, ${result.result.updated} updated${result.result.errors.length > 0 ? ` (${result.result.errors.length} errors)` : ''}`
+        })
+        
+        setTimeout(() => {
+          router.push('/inventory')
+        }, 2000)
+      } else {
+        throw new Error(result.message || 'Import failed')
+      }
+      
+    } catch (error) {
+      console.error('File processing error:', error)
+      setNotification({
+        type: 'error',
+        message: `Failed to process file: ${error instanceof Error ? error.message : 'Unknown error'}`
+      })
+    } finally {
+      setIsProcessingFile(false)
+    }
+  }
+
+  const handleChooseFileClick = () => {
+    bulkFileInputRef.current?.click()
+  }
+
+  const handleClearFile = () => {
+    setSelectedFile(null)
+    if (bulkFileInputRef.current) {
+      bulkFileInputRef.current.value = ''
+    }
+    setNotification(null)
+  }
+
+  const downloadTemplate = () => {
+    const headers = [
+      'title',
+      'upc',
+      'brand',
+      'category',
+      'condition',
+      'quantity',
+      'price',
+      'cost',
+      'description',
+      'color',
+      'size'
+    ]
+    
+    const sampleRow = [
+      'Sample Product Title',
+      '123456789012',
+      'Sample Brand',
+      'Electronics',
+      'New',
+      '1',
+      '29.99',
+      '15.00',
+      'This is a sample product description',
+      'Black',
+      'Medium'
+    ]
+    
+    const csvContent = [
+      headers.join(','),
+      sampleRow.join(',')
+    ].join('\n')
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'product_import_template.csv'
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
   }
 
   const inputMethods = [
@@ -158,12 +294,25 @@ export default function AddProductPage() {
   ]
 
   return (
-    <MainLayout
-      title="Add Products"
-      subtitle="Choose your preferred method to add products to inventory"
-      icon={<Plus className="w-8 h-8 text-primary" />}
-    >
+    <MainLayout>
       <div className="p-6 max-w-7xl mx-auto">
+        {/* Page Header */}
+        <div className="mb-6">
+          <div className="flex items-center space-x-3 mb-2">
+            <div className="transform transition-transform duration-200 hover:scale-110">
+              <Plus className="w-8 h-8 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground transition-colors duration-200">
+                Add Products
+              </h1>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Choose your preferred method to add products to inventory
+          </p>
+        </div>
+        
         {/* Notification */}
         {notification && (
           <div className={`
@@ -488,25 +637,84 @@ export default function AddProductPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    <div className="border-2 border-dashed border-border dark:border-gray-600 rounded-lg p-8 text-center">
-                      <FileText className="w-12 h-12 text-muted-foreground dark:text-gray-400 mx-auto mb-4" />
-                      <p className="text-muted-foreground dark:text-gray-400 mb-4">
-                        Upload CSV or Excel file with product data
-                      </p>
-                      <input
-                        type="file"
-                        accept=".csv,.xlsx,.xls"
-                        onChange={handleBulkUpload}
-                        className="hidden"
-                        id="bulk-upload"
-                      />
-                      <label htmlFor="bulk-upload">
-                        <Button variant="primary" className="cursor-pointer">
+                    {/* File Upload Area */}
+                    {!selectedFile ? (
+                      <div className="border-2 border-dashed border-border dark:border-gray-600 rounded-lg p-8 text-center">
+                        <FileText className="w-12 h-12 text-muted-foreground dark:text-gray-400 mx-auto mb-4" />
+                        <p className="text-muted-foreground dark:text-gray-400 mb-4">
+                          Upload CSV or Excel file with product data
+                        </p>
+                        <input
+                          ref={bulkFileInputRef}
+                          type="file"
+                          accept=".csv,.xlsx,.xls"
+                          onChange={handleBulkUpload}
+                          className="hidden"
+                          id="bulk-upload"
+                        />
+                        <Button 
+                          variant="primary" 
+                          onClick={handleChooseFileClick}
+                          className="cursor-pointer"
+                        >
                           <Upload className="w-4 h-4 mr-2" />
                           Choose File
                         </Button>
-                      </label>
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="border-2 border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/20 rounded-lg p-6">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-green-100 dark:bg-green-800 rounded-lg flex items-center justify-center">
+                              <FileText className="w-5 h-5 text-green-600 dark:text-green-400" />
+                            </div>
+                            <div>
+                              <h4 className="font-medium text-green-800 dark:text-green-200">{selectedFile.name}</h4>
+                              <p className="text-sm text-green-600 dark:text-green-400">
+                                {(selectedFile.size / 1024).toFixed(1)} KB
+                              </p>
+                            </div>
+                          </div>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={handleClearFile}
+                            disabled={isProcessingFile}
+                          >
+                            <X className="w-4 h-4 mr-1" />
+                            Remove
+                          </Button>
+                        </div>
+                        
+                        <div className="flex space-x-2">
+                          <Button 
+                            variant="primary" 
+                            onClick={handleProcessFile}
+                            disabled={isProcessingFile}
+                            className="flex-1"
+                          >
+                            {isProcessingFile ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Processing...
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="w-4 h-4 mr-2" />
+                                Process File
+                              </>
+                            )}
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            onClick={handleChooseFileClick}
+                            disabled={isProcessingFile}
+                          >
+                            Choose Different File
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     
                     <div className="bg-muted/50 dark:bg-gray-700/50 rounded-lg p-4">
                       <h4 className="font-medium mb-2 dark:text-white">Required columns:</h4>
@@ -522,7 +730,7 @@ export default function AddProductPage() {
                       </ul>
                     </div>
                     
-                    <Button variant="outline" className="w-full">
+                    <Button variant="outline" className="w-full" onClick={downloadTemplate}>
                       <FileText className="w-4 h-4 mr-2" />
                       Download Template CSV
                     </Button>
