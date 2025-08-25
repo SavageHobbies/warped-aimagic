@@ -32,6 +32,7 @@ export default function ImageProductIdentifier({
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [candidates, setCandidates] = useState<ProductCandidate[]>([])
+  const [analysisResult, setAnalysisResult] = useState<any>(null)
   const [selectedCandidate, setSelectedCandidate] = useState<number>(0)
   const [isSearching, setIsSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -82,10 +83,19 @@ export default function ImageProductIdentifier({
 
       const result = await response.json()
       
+      // Store the full analysis result for later use
+      setAnalysisResult(result)
+      
       if (result.candidates && result.candidates.length > 0) {
         setCandidates(result.candidates)
         setSelectedCandidate(0)
         setStep('selecting')
+        
+        // Log UPC detection results
+        console.log('Vision Analysis Complete:')
+        console.log('- Found candidates:', result.candidates.length)
+        console.log('- Overall foundUPC:', result.foundUPC)
+        console.log('- Candidate UPCs:', result.candidates.map((c: any, i: number) => `${i}: ${c.upc || 'none'}`).join(', '))
       } else {
         setError('No products identified in the image. Please try another image.')
         setStep('upload')
@@ -129,9 +139,21 @@ export default function ImageProductIdentifier({
     try {
       // PRIORITY 1: Check if UPC was found during initial product identification
       let upcToUse: string | null = candidate.upc || null
+      let upcSource: string = 'none'
       
       console.log('UPC Analysis:')
       console.log('- UPC from AI product identification:', candidate.upc)
+      
+      if (upcToUse) {
+        upcSource = 'ai_candidate'
+      }
+      
+      // PRIORITY 1.5: Check if foundUPC was detected in the overall vision analysis
+      if (!upcToUse && analysisResult?.foundUPC) {
+        upcToUse = analysisResult.foundUPC
+        upcSource = 'vision_analysis'
+        console.log('- UPC from vision analysis foundUPC field:', upcToUse)
+      }
       
       // PRIORITY 2: If no UPC from product identification, try to extract from image
       if (!upcToUse && imagePreview) {
@@ -149,6 +171,9 @@ export default function ImageProductIdentifier({
           if (textResponse.ok) {
             const textResult = await textResponse.json()
             upcToUse = textResult.barcode || null
+            if (upcToUse) {
+              upcSource = 'text_extraction'
+            }
             console.log('- UPC from text extraction:', upcToUse)
           }
         } catch (err) {
@@ -156,9 +181,50 @@ export default function ImageProductIdentifier({
         }
       }
 
+      // PRIORITY 3: If still no UPC, try searching by product name
+      if (!upcToUse && candidate.name) {
+        console.log('- No UPC from image extraction, searching by product name...')
+        try {
+          const searchResponse = await fetch('/api/products/search-upc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productName: candidate.name,
+              brand: candidate.brand
+            })
+          })
+          
+          if (searchResponse.ok) {
+            const searchResult = await searchResponse.json()
+            if (searchResult.upc) {
+              upcToUse = searchResult.upc
+              upcSource = 'name_search'
+              console.log('- UPC from product name search:', upcToUse)
+              console.log('- Search details:', {
+                source: searchResult.searchSource,
+                query: `${candidate.brand || ''} ${candidate.name}`.trim(),
+                matches: searchResult.totalResults,
+                usage: searchResult.usage
+              })
+            } else {
+              console.log('- No UPC found in search results from either database')
+            }
+          } else {
+            console.log('- Product name search failed:', searchResponse.status)
+          }
+        } catch (err) {
+          console.log('- Product name search error:', err)
+        }
+      }
+
       // If we have a UPC (from either source), use the standard product lookup API
       if (upcToUse) {
         console.log(`✅ Using UPC as source of truth: ${upcToUse}`)
+        console.log(`🤖 AI identified:`, {
+          name: candidate.name,
+          brand: candidate.brand,
+          confidence: candidate.confidence
+        })
         
         const response = await fetch('/api/products/lookup', {
           method: 'POST',
@@ -171,7 +237,90 @@ export default function ImageProductIdentifier({
         })
 
         if (response.ok) {
-          const result = await response.json()
+          let result = await response.json()
+          
+          // Enhanced data reconciliation logic to prioritize AI identification
+          const aiTitle = candidate.name?.toLowerCase() || ''
+          const aiBrand = candidate.brand?.toLowerCase() || ''
+          const upcTitle = result.title?.toLowerCase() || ''
+          const upcBrand = result.brand?.toLowerCase() || ''
+          
+          // More sophisticated similarity checks
+          const titleWordsMatch = calculateWordOverlap(aiTitle, upcTitle)
+          const brandMatches = aiBrand === upcBrand || 
+                              (aiBrand && upcBrand && (aiBrand.includes(upcBrand) || upcBrand.includes(aiBrand)))
+          
+          // Check for completely different product categories (e.g., Funko vs Food)
+          const aiCategory = candidate.category?.toLowerCase() || ''
+          const categoryMismatch = detectCategoryMismatch(aiCategory, upcTitle, aiTitle)
+          
+          // Use AI confidence as a factor - high confidence AI should override UPC data
+          const highConfidenceAI = candidate.confidence > 0.8
+          
+          // Decide if we should prioritize AI identification
+          const shouldPrioritizeAI = categoryMismatch || 
+                                    titleWordsMatch < 0.3 || 
+                                    !brandMatches || 
+                                    (highConfidenceAI && titleWordsMatch < 0.5)
+          
+          console.log('🔍 Data Reconciliation Analysis:')
+          console.log('  AI Identified:', { title: candidate.name, brand: candidate.brand, category: candidate.category, confidence: candidate.confidence })
+          console.log('  UPC Database:', { title: result.title, brand: result.brand })
+          console.log('  Metrics:', { titleWordsMatch, brandMatches, categoryMismatch, highConfidenceAI, shouldPrioritizeAI })
+          
+          // If AI identification should be prioritized, update the product
+          if (shouldPrioritizeAI) {
+            console.log('🤖 PRIORITIZING AI IDENTIFICATION - Significant mismatch detected')
+            console.log('  Reason:', categoryMismatch ? 'Category mismatch' : 
+                                     titleWordsMatch < 0.3 ? 'Low title similarity' : 
+                                     !brandMatches ? 'Brand mismatch' : 'High confidence AI with poor match')
+            
+            // Update the product with AI-identified information
+            try {
+              const updateResponse = await fetch(`/api/products/${result.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: candidate.name, // PRIORITIZE AI-identified title
+                  brand: candidate.brand, // PRIORITIZE AI-identified brand
+                  description: candidate.description || result.description,
+                  category: candidate.category || result.category,
+                  // Keep UPC database data for technical specs only
+                  condition: result.condition,
+                  weight: result.weight,
+                  dimensions: result.dimensions,
+                  // Store both data sources for transparency
+                  aiGeneratedContent: {
+                    ...result.aiGeneratedContent,
+                    aiIdentifiedTitle: candidate.name,
+                    aiIdentifiedBrand: candidate.brand,
+                    aiIdentifiedDescription: candidate.description,
+                    aiIdentifiedCategory: candidate.category,
+                    upcDatabaseTitle: result.title,
+                    upcDatabaseBrand: result.brand,
+                    confidenceScore: candidate.confidence,
+                    identificationMethod: upcSource,
+                    dataEnriched: true,
+                    enrichedAt: new Date().toISOString(),
+                    aiPrioritized: true,
+                    reconciliationReason: categoryMismatch ? 'category_mismatch' : 
+                                         titleWordsMatch < 0.3 ? 'low_title_similarity' : 
+                                         !brandMatches ? 'brand_mismatch' : 'high_confidence_ai'
+                  }
+                })
+              })
+              
+              if (updateResponse.ok) {
+                const updatedResult = await updateResponse.json()
+                console.log('✅ Successfully updated product with AI-prioritized information')
+                result = updatedResult // Use the updated product data
+              }
+            } catch (updateError) {
+              console.warn('⚠️ Failed to update product with AI data:', updateError)
+            }
+          } else {
+            console.log('✅ UPC database data appears accurate, keeping with AI enhancements')
+          }
           
           // Enrich UPC-based data with AI-identified insights
           const enrichedData = {
@@ -180,9 +329,23 @@ export default function ImageProductIdentifier({
             aiCategory: candidate.category,
             aiAttributes: candidate.attributes,
             aiConfidence: candidate.confidence,
-            identificationMethod: candidate.upc ? 'ai_with_upc' : 'image_with_extracted_upc',
+            identificationMethod: upcSource === 'ai_candidate'
+              ? 'ai_with_upc' 
+              : upcSource === 'vision_analysis'
+                ? 'vision_analysis_upc'
+                : upcSource === 'name_search'
+                  ? 'product_name_search_upc'
+                  : 'image_text_extraction_upc',
             aiExtractedBrand: candidate.brand,
-            message: `✅ Product found via UPC and added to inventory! Enhanced with AI insights. Confidence: ${Math.round(candidate.confidence * 100)}%`
+            titleCorrected: shouldPrioritizeAI,
+            brandCorrected: shouldPrioritizeAI && !brandMatches,
+            message: upcSource === 'ai_candidate'
+              ? `✅ Product found via AI-detected UPC (${upcToUse}) and added to inventory! Enhanced with AI insights. Confidence: ${Math.round(candidate.confidence * 100)}%`
+              : upcSource === 'vision_analysis'
+                ? `✅ Product found via vision-detected UPC (${upcToUse}) and added to inventory! Enhanced with AI insights. Confidence: ${Math.round(candidate.confidence * 100)}%`
+                : upcSource === 'name_search'
+                  ? `🔍 Product found via name search UPC (${upcToUse}) and added to inventory! Enhanced with AI insights. Confidence: ${Math.round(candidate.confidence * 100)}%`
+                  : `✅ Product found via extracted UPC (${upcToUse}) and added to inventory! Enhanced with AI insights. Confidence: ${Math.round(candidate.confidence * 100)}%`
           }
 
           onProductIdentified(enrichedData)
@@ -194,20 +357,16 @@ export default function ImageProductIdentifier({
         console.log('⚠️ No UPC found - using AI-only product creation as fallback')
       }
 
-      // If no UPC found or UPC lookup failed, try to add product with AI-identified information
+      // If no UPC found or UPC lookup failed, create product with available data
       console.log('Adding product using AI-identified information')
       
-      // Generate a unique identifier for products without UPC
-      const generatedId = `IMG-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      
-      // Create product with AI-identified information
-      const productData = {
-        sku: generatedId, // Use SKU as identifier since UPC/EAN/GTIN not available
+      // Use UPC as primary identifier if available, otherwise generate SKU
+      const productData: any = {
         title: candidate.name,
         brand: candidate.brand,
         description: candidate.description,
         category: candidate.category,
-        condition: 'New', // Default condition
+        condition: 'new', // Default condition (lowercase to match database)
         quantity: 1,
         
         // Store AI metadata
@@ -215,8 +374,19 @@ export default function ImageProductIdentifier({
           confidence: candidate.confidence,
           extractedFromImage: true,
           attributes: candidate.attributes,
-          imageAnalysisDate: new Date().toISOString()
+          imageAnalysisDate: new Date().toISOString(),
+          upcAttempted: upcToUse || null // Track if we tried to use a UPC
         }
+      }
+
+      // Use UPC as primary identifier if found, otherwise generate SKU
+      if (upcToUse) {
+        productData.upc = upcToUse
+        console.log(`📊 Using UPC as primary identifier: ${upcToUse}`)
+      } else {
+        const generatedId = `IMG-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        productData.sku = generatedId
+        console.log(`🏷️ No UPC available, using generated SKU: ${generatedId}`)
       }
 
       const addResponse = await fetch('/api/products', {
@@ -226,10 +396,13 @@ export default function ImageProductIdentifier({
       })
 
       if (!addResponse.ok) {
-        throw new Error('Failed to add product to inventory')
+        const errorData = await addResponse.json()
+        console.error('Product creation failed:', errorData)
+        throw new Error(`Failed to add product to inventory: ${errorData.details || errorData.error}`)
       }
 
-      const newProduct = await addResponse.json()
+      const addResult = await addResponse.json()
+      const newProduct = addResult.product || addResult // Handle both response formats
       
       // Try to create a listing draft for the new product
       try {
@@ -259,9 +432,13 @@ export default function ImageProductIdentifier({
         aiCategory: candidate.category,
         aiAttributes: candidate.attributes,
         aiConfidence: candidate.confidence,
-        identificationMethod: 'image_only',
+        identificationMethod: upcToUse ? 'image_with_upc_fallback' : 'image_only',
         isNewProduct: true,
-        message: `✨ Product identified from image and added to inventory! Confidence: ${Math.round(candidate.confidence * 100)}%`
+        usedUPC: upcToUse,
+        upcSource: upcSource,
+        message: upcToUse 
+          ? `✨ Product identified from image with UPC ${upcToUse} (via ${upcSource.replace('_', ' ')}) and added to inventory! Confidence: ${Math.round(candidate.confidence * 100)}%`
+          : `✨ Product identified from image and added to inventory! No UPC found despite comprehensive search. Confidence: ${Math.round(candidate.confidence * 100)}%`
       }
 
       onProductIdentified(enrichedData)
@@ -282,11 +459,60 @@ export default function ImageProductIdentifier({
   const resetFlow = () => {
     setImagePreview(null)
     setCandidates([])
+    setAnalysisResult(null)
     setSelectedCandidate(0)
     setError(null)
     setStep('upload')
     if (fileInputRef.current) fileInputRef.current.value = ''
     if (cameraInputRef.current) cameraInputRef.current.value = ''
+  }
+
+  // Helper method for calculating word overlap between two strings
+  const calculateWordOverlap = (str1: string, str2: string): number => {
+    if (!str1 || !str2) return 0
+    
+    const words1 = str1.toLowerCase().split(/\s+/).filter(word => word.length > 2)
+    const words2 = str2.toLowerCase().split(/\s+/).filter(word => word.length > 2)
+    
+    if (words1.length === 0 || words2.length === 0) return 0
+    
+    const intersection = words1.filter(word => words2.includes(word))
+    const union = [...new Set([...words1, ...words2])]
+    
+    return intersection.length / union.length
+  }
+
+  // Helper method for detecting category mismatches (e.g., Toys vs Food)
+  const detectCategoryMismatch = (aiCategory: string, upcTitle: string, aiTitle: string): boolean => {
+    const categories = {
+      toys: ['toy', 'funko', 'pop', 'figure', 'collectible', 'action', 'doll', 'plush'],
+      food: ['gourmet', 'popcorn', 'snack', 'food', 'candy', 'chocolate', 'beverage'],
+      electronics: ['electronic', 'device', 'gadget', 'tech', 'computer', 'phone'],
+      clothing: ['shirt', 'dress', 'pants', 'clothing', 'apparel', 'fashion'],
+      books: ['book', 'novel', 'guide', 'manual', 'literature'],
+      media: ['dvd', 'blu-ray', 'cd', 'movie', 'film', 'music']
+    }
+    
+    const detectCategory = (text: string): string[] => {
+      const detectedCategories: string[] = []
+      for (const [category, keywords] of Object.entries(categories)) {
+        if (keywords.some(keyword => text.toLowerCase().includes(keyword))) {
+          detectedCategories.push(category)
+        }
+      }
+      return detectedCategories
+    }
+    
+    const aiCategories = detectCategory(aiTitle + ' ' + aiCategory)
+    const upcCategories = detectCategory(upcTitle)
+    
+    // If we detect categories and they don't overlap, it's a mismatch
+    if (aiCategories.length > 0 && upcCategories.length > 0) {
+      const hasOverlap = aiCategories.some(cat => upcCategories.includes(cat))
+      return !hasOverlap
+    }
+    
+    return false
   }
 
   const navigateCandidate = (direction: 'prev' | 'next') => {
@@ -431,7 +657,7 @@ export default function ImageProductIdentifier({
             Analyzing your image...
           </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Our AI is identifying products and extracting UPC codes from your image
+            Our AI is identifying products, extracting UPC codes, and preparing database searches
           </p>
           {imagePreview && (
             <div className="mt-6 flex justify-center">
@@ -453,7 +679,10 @@ export default function ImageProductIdentifier({
               We found {candidates.length} possible match{candidates.length > 1 ? 'es' : ''}
             </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Select the correct product and we'll add it to your inventory using the UPC as the source of truth
+              Select the correct product and we'll add it to your inventory using UPC detection
+            </p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              🔍 If no UPC is visible, we'll search UPCDatabase.org & UPCItemDB by product name
             </p>
           </div>
 
@@ -477,6 +706,18 @@ export default function ImageProductIdentifier({
                   {candidates[selectedCandidate].upc && (
                     <p className="text-sm text-emerald-600 dark:text-emerald-400 mb-1 font-medium">
                       <span className="font-medium">✅ UPC Found:</span> {candidates[selectedCandidate].upc}
+                    </p>
+                  )}
+                  
+                  {!candidates[selectedCandidate].upc && analysisResult?.foundUPC && (
+                    <p className="text-sm text-emerald-600 dark:text-emerald-400 mb-1 font-medium">
+                      <span className="font-medium">✅ UPC Detected in Image:</span> {analysisResult.foundUPC}
+                    </p>
+                  )}
+                  
+                  {!candidates[selectedCandidate].upc && !analysisResult?.foundUPC && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400 mb-1 font-medium">
+                      <span className="font-medium">⚠️ No UPC Found:</span> Will use AI identification only
                     </p>
                   )}
                   

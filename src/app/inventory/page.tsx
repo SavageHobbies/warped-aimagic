@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import MainLayout from '@/components/MainLayout'
 import Button from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import MultiMarketplaceExportModal from '@/components/MultiMarketplaceExportModal'
 import { 
   Package, Plus, Search, Filter, Edit, Trash2, Eye, 
   Upload, BarChart, DollarSign, AlertCircle, CheckCircle,
@@ -22,6 +23,8 @@ interface Product {
   price?: number
   lowestRecordedPrice?: number
   highestRecordedPrice?: number
+  enhancementStatus?: string
+  lastEnhanced?: string
   images?: Array<{ originalUrl?: string }>
   listingDrafts?: Array<{ id: string; status: string }>
 }
@@ -33,16 +36,14 @@ export default function InventoryPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set())
   const [filterCondition, setFilterCondition] = useState('all')
+  const [filterEnhancement, setFilterEnhancement] = useState('all')
   const [sortBy, setSortBy] = useState('updated')
-  const [showExportModal, setShowExportModal] = useState(false)
-  const [exportFormat, setExportFormat] = useState<'cpi' | 'baselinker' | 'ebay'>('cpi')
-  const [exportScope, setExportScope] = useState<'selected' | 'filtered'>('filtered')
-  const [exportOptions, setExportOptions] = useState({
-    currency: 'USD',
-    delimiter: ',',
-    excelFriendly: true
-  })
-  const [exporting, setExporting] = useState(false)
+  const [showMultiExportModal, setShowMultiExportModal] = useState(false)
+  const [creatingDrafts, setCreatingDrafts] = useState(false)
+  const [deletingProducts, setDeletingProducts] = useState(false)
+  const [enhancingProducts, setEnhancingProducts] = useState(false)
+  const [editingField, setEditingField] = useState<{productId: string, field: string} | null>(null)
+  const [editValue, setEditValue] = useState('')
 
   useEffect(() => {
     fetchInventory()
@@ -85,136 +86,506 @@ export default function InventoryPage() {
                          product.upc?.includes(searchTerm) ||
                          product.brand?.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesCondition = filterCondition === 'all' || product.condition === filterCondition
-    return matchesSearch && matchesCondition
+    const matchesEnhancement = filterEnhancement === 'all' || 
+                               (filterEnhancement === 'enhanced' && product.enhancementStatus === 'enhanced') ||
+                               (filterEnhancement === 'not_enhanced' && (product.enhancementStatus === 'not_enhanced' || !product.enhancementStatus))
+    return matchesSearch && matchesCondition && matchesEnhancement
   })
 
   const bulkCreateDrafts = async () => {
-    // Create eBay drafts for selected products
-    console.log('Creating drafts for:', selectedProducts)
-  }
+    if (selectedProducts.size === 0) {
+      alert('Please select products to create drafts for')
+      return
+    }
 
-  const handleExport = async () => {
-    if (exporting) return
-    
-    setExporting(true)
+    setCreatingDrafts(true)
+    const productIds = Array.from(selectedProducts)
+    let successCount = 0
+    let errorCount = 0
+    const errors: string[] = []
+
     try {
-      // Prepare the request body
-      const requestBody: any = {
-        format: exportFormat,
-        options: exportOptions
-      }
+      console.log('Creating eBay drafts for products:', productIds)
       
-      // Set selection based on scope
-      if (exportScope === 'selected' && selectedProducts.size > 0) {
-        requestBody.selection = {
-          ids: Array.from(selectedProducts)
+      // Create drafts for each selected product
+      for (const productId of productIds) {
+        try {
+          const product = products.find(p => p.id === productId)
+          if (!product) {
+            errors.push(`Product ${productId} not found`)
+            errorCount++
+            continue
+          }
+
+          const response = await fetch('/api/listings/drafts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productId: productId,
+              marketplace: 'EBAY',
+              price: product.lowestRecordedPrice || 0,
+              quantity: product.quantity || 1,
+              title: product.title,
+              description: product.title // Use title as basic description if none
+            })
+          })
+
+          if (response.ok) {
+            successCount++
+            console.log(`✅ Created draft for: ${product.title}`)
+          } else {
+            const errorData = await response.json()
+            errors.push(`${product.title}: ${errorData.error || 'Unknown error'}`)
+            errorCount++
+          }
+        } catch (error) {
+          console.error(`Error creating draft for product ${productId}:`, error)
+          const productTitle = products.find(p => p.id === productId)?.title || productId
+          errors.push(`${productTitle}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          errorCount++
         }
-      } else {
-        // Export filtered products
-        const filters: any = {}
-        if (searchTerm) filters.search = searchTerm
-        if (filterCondition !== 'all') filters.condition = filterCondition
-        
-        requestBody.selection = { filters }
       }
-      
-      // Make the API call
-      const response = await fetch('/api/export/multi-format', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-      })
-      
-      if (response.ok) {
-        // Download the file
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19)
-        a.download = `inventory_${exportFormat}_${timestamp}.csv`
-        document.body.appendChild(a)
-        a.click()
-        window.URL.revokeObjectURL(url)
-        document.body.removeChild(a)
+
+      // Show results
+      if (successCount > 0 && errorCount === 0) {
+        // Complete success
+        const successMsg = document.createElement('div')
+        successMsg.innerHTML = `✅ Successfully created ${successCount} eBay drafts!`
+        successMsg.className = 'fixed top-20 right-6 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right'
+        document.body.appendChild(successMsg)
+        setTimeout(() => document.body.removeChild(successMsg), 4000)
         
-        // Close modal and show success
-        setShowExportModal(false)
-        alert(`Successfully exported ${exportScope === 'selected' ? selectedProducts.size : filteredProducts.length} products to ${exportFormat.toUpperCase()} format`)
+        // Clear selection and redirect to listings
+        setSelectedProducts(new Set())
+        router.push('/listings')
+      } else if (successCount > 0 && errorCount > 0) {
+        // Partial success
+        alert(`Partial success: Created ${successCount} drafts, ${errorCount} failed.\n\nErrors:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...and more' : ''}`)
+        setSelectedProducts(new Set())
+        router.push('/listings')
       } else {
-        const error = await response.json()
-        alert(`Export failed: ${error.error || 'Unknown error'}`)
+        // Complete failure
+        alert(`Failed to create drafts for all ${errorCount} products.\n\nErrors:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...and more' : ''}`)
       }
     } catch (error) {
-      console.error('Export error:', error)
-      alert('Failed to export. Please try again.')
+      console.error('Bulk draft creation error:', error)
+      alert('Failed to create drafts. Please try again.')
     } finally {
-      setExporting(false)
+      setCreatingDrafts(false)
+    }
+  }
+
+  const handleMultiMarketplaceExport = async (options: any) => {
+    try {
+      if (options.type === 'csv') {
+        // Handle CSV export to multiple marketplaces
+        const results = []
+        
+        for (const marketplace of options.marketplaces) {
+          const response = await fetch('/api/exports/csv', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productIds: options.productIds || Array.from(selectedProducts),
+              marketplace,
+              customFields: options.customFields
+            })
+          })
+          
+          if (response.ok) {
+            const result = await response.json()
+            results.push({ marketplace, ...result })
+          } else {
+            throw new Error(`Failed to export to ${marketplace}`)
+          }
+        }
+        
+        // Download all generated files
+        for (const result of results) {
+          if (result.downloadUrl) {
+            const downloadResponse = await fetch(result.downloadUrl)
+            const blob = await downloadResponse.blob()
+            const url = window.URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = result.filename
+            document.body.appendChild(a)
+            a.click()
+            window.URL.revokeObjectURL(url)
+            document.body.removeChild(a)
+          }
+        }
+        
+        alert(`Successfully exported to ${results.length} marketplace(s)`)
+        
+      } else if (options.type === 'baselinker') {
+        // Handle BaseLinker sync
+        const response = await fetch('/api/baselinker/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productIds: options.productIds || Array.from(selectedProducts),
+            action: 'add'
+          })
+        })
+        
+        if (response.ok) {
+          const result = await response.json()
+          alert(`BaseLinker sync completed: ${result.results.successCount} successful, ${result.results.errorCount} errors`)
+        } else {
+          throw new Error('BaseLinker sync failed')
+        }
+      }
+      
+      // Clear selection after successful export
+      setSelectedProducts(new Set())
+      
+    } catch (error) {
+      console.error('Multi-marketplace export error:', error)
+      alert(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const bulkDeleteProducts = async () => {
+    if (selectedProducts.size === 0) {
+      alert('Please select products to delete')
+      return
+    }
+
+    const productIds = Array.from(selectedProducts)
+    const confirmMessage = `Are you sure you want to delete ${productIds.length} product${productIds.length > 1 ? 's' : ''}? This action cannot be undone.`
+    
+    if (!confirm(confirmMessage)) {
+      return
+    }
+
+    setDeletingProducts(true)
+
+    try {
+      const response = await fetch('/api/products/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productIds,
+          force: false // Don't force delete initially
+        })
+      })
+
+      const result = await response.json()
+
+      if (response.ok && result.success) {
+        // Success
+        alert(`Successfully deleted ${result.summary.deleted} product(s)`)
+        
+        // Refresh inventory
+        await fetchInventory()
+        setSelectedProducts(new Set())
+      } else if (response.status === 409) {
+        // Products have references
+        const forceDelete = confirm(
+          `${result.productsWithReferences.length} products have existing listings or drafts. Delete anyway?\n\n` +
+          result.productsWithReferences.map((p: any) => 
+            `• ${p.title} (${p.references.listings} listings, ${p.references.drafts} drafts)`
+          ).join('\n')
+        )
+        
+        if (forceDelete) {
+          // Retry with force
+          const forceResponse = await fetch('/api/products/delete', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productIds,
+              force: true
+            })
+          })
+          
+          const forceResult = await forceResponse.json()
+          
+          if (forceResponse.ok && forceResult.success) {
+            alert(`Force deleted ${forceResult.summary.deleted} product(s)`)
+            await fetchInventory()
+            setSelectedProducts(new Set())
+          } else {
+            alert(`Force delete failed: ${forceResult.error}`)
+          }
+        }
+      } else {
+        alert(`Delete failed: ${result.error}`)
+      }
+
+    } catch (error) {
+      console.error('Error deleting products:', error)
+      alert('Failed to delete products. Please try again.')
+    } finally {
+      setDeletingProducts(false)
+    }
+  }
+
+  const bulkEnhanceProducts = async () => {
+    if (selectedProducts.size === 0) {
+      alert('Please select products to enhance')
+      return
+    }
+
+    const productIds = Array.from(selectedProducts)
+    const confirmMessage = `Comprehensively enhance ${productIds.length} product${productIds.length > 1 ? 's' : ''} with:\n\n• AI-generated titles and descriptions\n• External product data fetching\n• Market research and pricing\n• Complete product information\n\nThis may take a few minutes.`
+    
+    if (!confirm(confirmMessage)) {
+      return
+    }
+
+    setEnhancingProducts(true)
+    let successCount = 0
+    let errorCount = 0
+    let pricingAppliedCount = 0
+    let externalDataCount = 0
+    const errors: string[] = []
+    const enhancements: any[] = []
+
+    try {
+      console.log('Comprehensively enhancing products:', productIds)
+      
+      // Show progress indicator
+      const progressDiv = document.createElement('div')
+      progressDiv.innerHTML = `
+        <div class="fixed top-20 right-6 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right">
+          <div class="flex items-center space-x-2">
+            <div class="w-4 h-4 border border-white border-t-transparent rounded-full animate-spin"></div>
+            <span>Enhancing 0 of ${productIds.length} products...</span>
+          </div>
+        </div>
+      `
+      document.body.appendChild(progressDiv)
+      
+      // Enhance each selected product with comprehensive enhancement
+      for (let i = 0; i < productIds.length; i++) {
+        const productId = productIds[i]
+        
+        // Update progress
+        const progressElement = progressDiv.querySelector('span')
+        if (progressElement) {
+          progressElement.textContent = `Enhancing ${i + 1} of ${productIds.length} products...`
+        }
+        
+        try {
+          const product = products.find(p => p.id === productId)
+          if (!product) {
+            errors.push(`Product ${productId} not found`)
+            errorCount++
+            continue
+          }
+
+          const response = await fetch('/api/ai/enhance-product', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productId: productId,
+              includeMarketResearch: true,
+              includePricing: true
+            })
+          })
+
+          if (response.ok) {
+            const result = await response.json()
+            successCount++
+            enhancements.push({
+              title: product.title,
+              result
+            })
+            
+            // Track what was enhanced
+            if (result.externalData) {
+              externalDataCount++
+            }
+            if (result.marketResearch?.suggestedPrice) {
+              pricingAppliedCount++
+            }
+            
+            console.log(`✅ Enhanced: ${product.title}`, {
+              externalData: !!result.externalData,
+              marketResearch: !!result.marketResearch,
+              pricing: !!result.marketResearch?.suggestedPrice
+            })
+          } else {
+            const errorData = await response.json()
+            errors.push(`${product.title}: ${errorData.error || 'Unknown error'}`)
+            errorCount++
+          }
+        } catch (error) {
+          console.error(`Error enhancing product ${productId}:`, error)
+          const productTitle = products.find(p => p.id === productId)?.title || productId
+          errors.push(`${productTitle}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          errorCount++
+        }
+        
+        // Add delay between requests to avoid rate limiting
+        if (i < productIds.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1500))
+        }
+      }
+      
+      // Remove progress indicator
+      document.body.removeChild(progressDiv)
+
+      // Show comprehensive results
+      if (successCount > 0 && errorCount === 0) {
+        // Complete success
+        const successMsg = document.createElement('div')
+        successMsg.innerHTML = `
+          <div class="fixed top-20 right-6 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right max-w-md">
+            <div class="font-bold text-lg mb-2">✅ Bulk Enhancement Complete!</div>
+            <div class="text-sm space-y-1">
+              <div>• ${successCount} products enhanced</div>
+              <div>• ${externalDataCount} got external data</div>
+              <div>• ${pricingAppliedCount} got pricing updates</div>
+            </div>
+          </div>
+        `
+        document.body.appendChild(successMsg)
+        setTimeout(() => document.body.removeChild(successMsg), 5000)
+        
+        // Clear selection and refresh
+        setSelectedProducts(new Set())
+        await fetchInventory()
+      } else if (successCount > 0 && errorCount > 0) {
+        // Partial success
+        const summaryMsg = `Bulk Enhancement Results:\n\n✅ ${successCount} products enhanced\n❌ ${errorCount} failed\n• ${externalDataCount} got external data\n• ${pricingAppliedCount} got pricing updates\n\nErrors:\n${errors.slice(0, 3).join('\n')}${errors.length > 3 ? '\n...and more' : ''}`
+        alert(summaryMsg)
+        setSelectedProducts(new Set())
+        await fetchInventory()
+      } else {
+        // Complete failure
+        alert(`Enhancement failed for all ${errorCount} products.\n\nErrors:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...and more' : ''}`)
+      }
+    } catch (error) {
+      console.error('Bulk enhancement error:', error)
+      alert('Failed to enhance products. Please try again.')
+    } finally {
+      setEnhancingProducts(false)
+    }
+  }
+
+  const startEditing = (productId: string, field: string, currentValue: string | number) => {
+    setEditingField({productId, field})
+    setEditValue(String(currentValue || ''))
+  }
+
+  const cancelEditing = () => {
+    setEditingField(null)
+    setEditValue('')
+  }
+
+  const saveEdit = async () => {
+    if (!editingField) return
+
+    try {
+      const updateData: any = {}
+      
+      if (editingField.field === 'quantity') {
+        const quantity = parseInt(editValue)
+        if (isNaN(quantity) || quantity < 0) {
+          alert('Quantity must be a valid positive number')
+          return
+        }
+        updateData.quantity = quantity
+      } else {
+        updateData[editingField.field] = editValue.trim()
+      }
+
+      const response = await fetch(`/api/products/${editingField.productId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData)
+      })
+
+      if (response.ok) {
+        // Update local state
+        setProducts(prev => prev.map(p => 
+          p.id === editingField.productId 
+            ? { ...p, ...updateData }
+            : p
+        ))
+        cancelEditing()
+      } else {
+        const error = await response.json()
+        alert(`Failed to update: ${error.message || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error saving edit:', error)
+      alert('Failed to save changes')
+    }
+  }
+
+  const deleteProduct = async (productId: string) => {
+    const product = products.find(p => p.id === productId)
+    const confirmMessage = `Are you sure you want to delete "${product?.title}"? This action cannot be undone.`
+    
+    if (!confirm(confirmMessage)) {
+      return
+    }
+
+    try {
+      const response = await fetch('/api/products/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productIds: [productId],
+          force: false
+        })
+      })
+
+      const result = await response.json()
+
+      if (response.ok && result.success) {
+        alert('Product deleted successfully')
+        await fetchInventory()
+      } else if (response.status === 409) {
+        const forceDelete = confirm(
+          `This product has existing listings or drafts. Delete anyway?`
+        )
+        
+        if (forceDelete) {
+          const forceResponse = await fetch('/api/products/delete', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productIds: [productId],
+              force: true
+            })
+          })
+          
+          const forceResult = await forceResponse.json()
+          
+          if (forceResponse.ok && forceResult.success) {
+            alert('Product force deleted')
+            await fetchInventory()
+          } else {
+            alert(`Force delete failed: ${forceResult.error}`)
+          }
+        }
+      } else {
+        alert(`Delete failed: ${result.error}`)
+      }
+
+    } catch (error) {
+      console.error('Error deleting product:', error)
+      alert('Failed to delete product. Please try again.')
     }
   }
 
   return (
     <MainLayout
-      title="Inventory Management"
-      subtitle={`${products.length} products in inventory`}
-      icon={<Package className="w-8 h-8 text-primary" />}
       actions={
         <div className="flex space-x-2">
-          {selectedProducts.size > 0 && (
-            <>
-              <Button variant="outline" size="sm" onClick={bulkCreateDrafts}>
-                <Send className="w-4 h-4 mr-2" />
-                Create Drafts ({selectedProducts.size})
-              </Button>
-            </>
-          )}
-          
-          {/* Export Dropdown */}
-          <div className="relative group">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="flex items-center"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Export
-              <ChevronDown className="w-3 h-3 ml-1" />
-            </Button>
-            
-            {/* Dropdown Menu */}
-            <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-              <button
-                onClick={() => {
-                  setExportFormat('cpi')
-                  setShowExportModal(true)
-                }}
-                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg flex items-center"
-              >
-                <FileSpreadsheet className="w-4 h-4 mr-2 text-blue-600" />
-                CPI Sheet
-              </button>
-              <button
-                onClick={() => {
-                  setExportFormat('baselinker')
-                  setShowExportModal(true)
-                }}
-                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
-              >
-                <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
-                Baselinker
-              </button>
-              <button
-                onClick={() => {
-                  setExportFormat('ebay')
-                  setShowExportModal(true)
-                }}
-                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-lg flex items-center"
-              >
-                <FileSpreadsheet className="w-4 h-4 mr-2 text-purple-600" />
-                eBay
-              </button>
-            </div>
-          </div>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => setShowMultiExportModal(true)}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export
+          </Button>
           
           <Button variant="primary" size="sm" onClick={() => router.push('/add-product')}>
             <Plus className="w-4 h-4 mr-2" />
@@ -224,6 +595,101 @@ export default function InventoryPage() {
       }
     >
       <div className="p-6">
+        {/* Page Header */}
+        <div className="mb-6">
+          <div className="flex items-center space-x-3 mb-2">
+            <div className="transform transition-transform duration-200 hover:scale-110">
+              <Package className="w-8 h-8 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground transition-colors duration-200">
+                Inventory
+              </h1>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Manage your product inventory
+          </p>
+        </div>
+        
+        {/* Page Header */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-foreground">{products.length} Products in Inventory</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                {filteredProducts.length !== products.length ? 
+                  `${filteredProducts.length} products shown (filtered)` : 
+                  'All products displayed'
+                }
+              </p>
+            </div>
+            {selectedProducts.size > 0 && (
+              <div className="flex items-center space-x-3">
+                <span className="text-sm text-muted-foreground">
+                  {selectedProducts.size} selected
+                </span>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={bulkCreateDrafts}
+                  disabled={creatingDrafts}
+                >
+                  {creatingDrafts ? (
+                    <>
+                      <div className="w-4 h-4 mr-2 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 mr-2" />
+                      Create Drafts ({selectedProducts.size})
+                    </>
+                  )}
+                </Button>
+                
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={bulkEnhanceProducts}
+                  disabled={enhancingProducts}
+                  className="bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100"
+                >
+                  {enhancingProducts ? (
+                    <>
+                      <div className="w-4 h-4 mr-2 border border-purple-400 border-t-transparent rounded-full animate-spin" />
+                      Enhancing...
+                    </>
+                  ) : (
+                    <>
+                      <BarChart className="w-4 h-4 mr-2" />
+                      AI Enhance ({selectedProducts.size})
+                    </>
+                  )}
+                </Button>
+                
+                <Button 
+                  variant="destructive" 
+                  size="sm"
+                  onClick={bulkDeleteProducts}
+                  disabled={deletingProducts}
+                >
+                  {deletingProducts ? (
+                    <>
+                      <div className="w-4 h-4 mr-2 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Selected
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <Card>
@@ -286,13 +752,13 @@ export default function InventoryPage() {
           <CardContent className="p-4">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
                 <input
                   type="text"
                   placeholder="Search by title, UPC, or brand..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-input rounded-lg bg-background text-foreground"
+                  className="w-full pl-12 pr-4 py-2 border border-input rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
                 />
               </div>
               
@@ -305,6 +771,16 @@ export default function InventoryPage() {
                 <option value="New">New</option>
                 <option value="Used">Used</option>
                 <option value="Refurbished">Refurbished</option>
+              </select>
+              
+              <select
+                value={filterEnhancement}
+                onChange={(e) => setFilterEnhancement(e.target.value)}
+                className="px-4 py-2 border border-input rounded-lg bg-background text-foreground"
+              >
+                <option value="all">All Enhancement Status</option>
+                <option value="enhanced">AI Enhanced</option>
+                <option value="not_enhanced">Not Enhanced</option>
               </select>
               
               <select
@@ -351,12 +827,13 @@ export default function InventoryPage() {
                           className="rounded border-input"
                         />
                       </th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Qty</th>
                       <th className="p-3 text-left text-sm font-medium text-foreground">Image</th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Condition</th>
                       <th className="p-3 text-left text-sm font-medium text-foreground">Product</th>
                       <th className="p-3 text-left text-sm font-medium text-foreground">Brand/UPC</th>
-                      <th className="p-3 text-left text-sm font-medium text-foreground">Qty</th>
-                      <th className="p-3 text-left text-sm font-medium text-foreground">Price Range</th>
-                      <th className="p-3 text-left text-sm font-medium text-foreground">Condition</th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Price</th>
+                      <th className="p-3 text-left text-sm font-medium text-foreground">Enhancement</th>
                       <th className="p-3 text-left text-sm font-medium text-foreground">Status</th>
                       <th className="p-3 text-left text-sm font-medium text-foreground">Actions</th>
                     </tr>
@@ -377,6 +854,43 @@ export default function InventoryPage() {
                           />
                         </td>
                         <td className="p-3">
+                          {editingField?.productId === product.id && editingField?.field === 'quantity' ? (
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="number"
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                className="w-20 px-2 py-1 border border-input rounded text-sm"
+                                min="0"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveEdit()
+                                  if (e.key === 'Escape') cancelEditing()
+                                }}
+                              />
+                              <button onClick={saveEdit} className="text-green-600 hover:text-green-800">
+                                <CheckCircle className="w-4 h-4" />
+                              </button>
+                              <button onClick={cancelEditing} className="text-red-600 hover:text-red-800">
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span 
+                              className={`font-medium cursor-pointer hover:bg-muted/50 px-2 py-1 rounded ${
+                                product.quantity <= 2 ? 'text-orange-500' : 'text-foreground'
+                              }`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                startEditing(product.id, 'quantity', product.quantity)
+                              }}
+                              title="Click to edit"
+                            >
+                              {product.quantity}
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3">
                           {product.images && product.images[0]?.originalUrl ? (
                             <img
                               src={product.images[0].originalUrl}
@@ -390,24 +904,92 @@ export default function InventoryPage() {
                           )}
                         </td>
                         <td className="p-3">
-                          <div className="font-medium text-foreground line-clamp-2">
-                            {product.title || 'Untitled Product'}
-                          </div>
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            product.condition === 'New' 
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          }`}>
+                            {product.condition}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          {editingField?.productId === product.id && editingField?.field === 'title' ? (
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="text"
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                className="flex-1 px-2 py-1 border border-input rounded text-sm"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveEdit()
+                                  if (e.key === 'Escape') cancelEditing()
+                                }}
+                              />
+                              <button onClick={saveEdit} className="text-green-600 hover:text-green-800">
+                                <CheckCircle className="w-4 h-4" />
+                              </button>
+                              <button onClick={cancelEditing} className="text-red-600 hover:text-red-800">
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div 
+                              className="font-medium text-foreground line-clamp-2 cursor-pointer hover:bg-muted/50 px-2 py-1 rounded"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                startEditing(product.id, 'title', product.title)
+                              }}
+                              title="Click to edit"
+                            >
+                              {product.title || 'Untitled Product'}
+                            </div>
+                          )}
                         </td>
                         <td className="p-3">
                           <div className="text-sm">
-                            <div className="text-foreground">{product.brand || 'No brand'}</div>
+                            {editingField?.productId === product.id && editingField?.field === 'brand' ? (
+                              <div className="flex items-center space-x-2 mb-1">
+                                <input
+                                  type="text"
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  className="flex-1 px-2 py-1 border border-input rounded text-sm"
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') saveEdit()
+                                    if (e.key === 'Escape') cancelEditing()
+                                  }}
+                                />
+                                <button onClick={saveEdit} className="text-green-600 hover:text-green-800">
+                                  <CheckCircle className="w-4 h-4" />
+                                </button>
+                                <button onClick={cancelEditing} className="text-red-600 hover:text-red-800">
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div 
+                                className="text-foreground cursor-pointer hover:bg-muted/50 px-2 py-1 rounded"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  startEditing(product.id, 'brand', product.brand || '')
+                                }}
+                                title="Click to edit"
+                              >
+                                {product.brand || 'No brand'}
+                              </div>
+                            )}
                             <div className="text-muted-foreground font-mono text-xs">{product.upc}</div>
                           </div>
                         </td>
                         <td className="p-3">
-                          <span className={`font-medium ${product.quantity <= 2 ? 'text-orange-500' : 'text-foreground'}`}>
-                            {product.quantity}
-                          </span>
-                        </td>
-                        <td className="p-3">
                           <div className="text-sm">
-                            {product.lowestRecordedPrice ? (
+                            {product.price ? (
+                              <div className="font-medium text-foreground">
+                                ${product.price.toFixed(2)}
+                              </div>
+                            ) : product.lowestRecordedPrice ? (
                               <>
                                 <div className="font-medium text-foreground">
                                   ${product.lowestRecordedPrice?.toFixed(2)}
@@ -425,11 +1007,11 @@ export default function InventoryPage() {
                         </td>
                         <td className="p-3">
                           <span className={`px-2 py-1 text-xs rounded-full ${
-                            product.condition === 'New' 
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            product.enhancementStatus === 'enhanced'
+                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
                               : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
                           }`}>
-                            {product.condition}
+                            {product.enhancementStatus === 'enhanced' ? '✨ Enhanced' : 'Not Enhanced'}
                           </span>
                         </td>
                         <td className="p-3">
@@ -464,6 +1046,7 @@ export default function InventoryPage() {
                               <Send className="w-4 h-4 text-muted-foreground" />
                             </button>
                             <button
+                              onClick={() => deleteProduct(product.id)}
                               className="p-1 rounded hover:bg-muted"
                               title="Delete"
                             >
@@ -481,226 +1064,14 @@ export default function InventoryPage() {
         </Card>
       </div>
       
-      {/* Export Modal */}
-      {showExportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-center space-x-3">
-                <FileSpreadsheet className="w-6 h-6 text-blue-600" />
-                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Export Inventory</h2>
-              </div>
-              <button
-                onClick={() => setShowExportModal(false)}
-                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            
-            {/* Modal Body */}
-            <div className="p-6 space-y-6">
-              {/* Format Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Export Format
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    onClick={() => setExportFormat('cpi')}
-                    className={`p-3 rounded-lg border-2 transition-colors ${
-                      exportFormat === 'cpi'
-                        ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <FileSpreadsheet className="w-5 h-5 mx-auto mb-1 text-blue-600" />
-                    <div className="text-xs font-medium">CPI</div>
-                  </button>
-                  <button
-                    onClick={() => setExportFormat('baselinker')}
-                    className={`p-3 rounded-lg border-2 transition-colors ${
-                      exportFormat === 'baselinker'
-                        ? 'border-green-600 bg-green-50 dark:bg-green-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <FileSpreadsheet className="w-5 h-5 mx-auto mb-1 text-green-600" />
-                    <div className="text-xs font-medium">Baselinker</div>
-                  </button>
-                  <button
-                    onClick={() => setExportFormat('ebay')}
-                    className={`p-3 rounded-lg border-2 transition-colors ${
-                      exportFormat === 'ebay'
-                        ? 'border-purple-600 bg-purple-50 dark:bg-purple-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <FileSpreadsheet className="w-5 h-5 mx-auto mb-1 text-purple-600" />
-                    <div className="text-xs font-medium">eBay</div>
-                  </button>
-                </div>
-              </div>
-              
-              {/* Scope Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Export Scope
-                </label>
-                <div className="space-y-2">
-                  <label className="flex items-center p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
-                    <input
-                      type="radio"
-                      value="filtered"
-                      checked={exportScope === 'filtered'}
-                      onChange={(e) => setExportScope(e.target.value as 'filtered' | 'selected')}
-                      className="mr-3"
-                    />
-                    <div>
-                      <div className="font-medium text-gray-900 dark:text-gray-100">
-                        All Filtered Products ({filteredProducts.length})
-                      </div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
-                        Export all products matching current filters
-                      </div>
-                    </div>
-                  </label>
-                  
-                  {selectedProducts.size > 0 && (
-                    <label className="flex items-center p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
-                      <input
-                        type="radio"
-                        value="selected"
-                        checked={exportScope === 'selected'}
-                        onChange={(e) => setExportScope(e.target.value as 'filtered' | 'selected')}
-                        className="mr-3"
-                      />
-                      <div>
-                        <div className="font-medium text-gray-900 dark:text-gray-100">
-                          Selected Products ({selectedProducts.size})
-                        </div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">
-                          Export only selected products
-                        </div>
-                      </div>
-                    </label>
-                  )}
-                </div>
-              </div>
-              
-              {/* Export Options */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Export Options
-                </label>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Currency</span>
-                    <select
-                      value={exportOptions.currency}
-                      onChange={(e) => setExportOptions({...exportOptions, currency: e.target.value})}
-                      className="px-3 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700 text-sm"
-                    >
-                      <option value="USD">USD</option>
-                      <option value="EUR">EUR</option>
-                      <option value="GBP">GBP</option>
-                      <option value="PLN">PLN</option>
-                    </select>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Delimiter</span>
-                    <select
-                      value={exportOptions.delimiter}
-                      onChange={(e) => setExportOptions({...exportOptions, delimiter: e.target.value})}
-                      className="px-3 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-700 text-sm"
-                    >
-                      <option value=",">Comma (,)</option>
-                      <option value=";">Semicolon (;)</option>
-                    </select>
-                  </div>
-                  
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={exportOptions.excelFriendly}
-                      onChange={(e) => setExportOptions({...exportOptions, excelFriendly: e.target.checked})}
-                      className="mr-2 rounded"
-                    />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">
-                      Excel Compatible (UTF-8 BOM)
-                    </span>
-                  </label>
-                </div>
-              </div>
-              
-              {/* Format-specific info */}
-              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
-                <div className="text-sm text-gray-600 dark:text-gray-400">
-                  {exportFormat === 'cpi' && (
-                    <div>
-                      <strong>CPI Format includes:</strong>
-                      <ul className="mt-1 text-xs space-y-1">
-                        <li>• SKU, Title, Purchase/List Price</li>
-                        <li>• Quantity, Category, Supplier</li>
-                        <li>• Barcode, Weight, Currency</li>
-                      </ul>
-                    </div>
-                  )}
-                  {exportFormat === 'baselinker' && (
-                    <div>
-                      <strong>Baselinker Format includes:</strong>
-                      <ul className="mt-1 text-xs space-y-1">
-                        <li>• Product name, SKU, EAN/UPC</li>
-                        <li>• Price, Stock, Weight</li>
-                        <li>• Description, Category, Images</li>
-                      </ul>
-                    </div>
-                  )}
-                  {exportFormat === 'ebay' && (
-                    <div>
-                      <strong>eBay Format includes:</strong>
-                      <ul className="mt-1 text-xs space-y-1">
-                        <li>• Title, Category, Condition</li>
-                        <li>• Pricing, Quantity, Images</li>
-                        <li>• Item Specifics, Brand, UPC/EAN</li>
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            {/* Modal Footer */}
-            <div className="flex justify-end space-x-3 p-6 border-t border-gray-200 dark:border-gray-700">
-              <button
-                onClick={() => setShowExportModal(false)}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleExport}
-                disabled={exporting}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-              >
-                {exporting ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4 mr-2" />
-                    Export
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Multi-Marketplace Export Modal */}
+      <MultiMarketplaceExportModal
+        isOpen={showMultiExportModal}
+        onClose={() => setShowMultiExportModal(false)}
+        selectedProductIds={Array.from(selectedProducts)}
+        totalProducts={products.length}
+        onExport={handleMultiMarketplaceExport}
+      />
     </MainLayout>
   )
 }

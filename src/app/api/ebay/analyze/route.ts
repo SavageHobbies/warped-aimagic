@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       productData = {
         title: product.title || undefined,
         brand: product.brand || undefined,
-        upc: product.upc
+        upc: product.upc || undefined
       }
     } else {
       productData = {

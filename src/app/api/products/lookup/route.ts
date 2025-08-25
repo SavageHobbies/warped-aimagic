@@ -79,6 +79,13 @@ export async function POST(request: NextRequest) {
     const item = apiResponse.items[0]
 
     // Create product in database
+    console.log(`🏭 Creating new product from UPC database:`, {
+      upc: item.upc,
+      title: item.title,
+      brand: item.brand,
+      description: item.description?.substring(0, 100) + '...'
+    })
+    
     const product = await prisma.product.create({
       data: {
         upc: item.upc,

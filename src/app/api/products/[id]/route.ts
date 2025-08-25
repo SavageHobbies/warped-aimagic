@@ -18,11 +18,12 @@ export async function PUT(
 
 async function updateProduct(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  paramsPromise: Promise<{ id: string }>
 ) {
   try {
     const body = await request.json()
-    const { id } = await params
+    const params = await paramsPromise
+    const { id } = params
 
     const {
       title,
@@ -45,6 +46,7 @@ async function updateProduct(
       features,
       funkoPop,
       isbn,
+      upc,
       quantity,
       aiContent
     } = body
@@ -66,6 +68,7 @@ async function updateProduct(
           condition,
           material,
           mpn,
+          upc,
           ageGroup,
           theme,
           character,

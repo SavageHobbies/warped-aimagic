@@ -277,29 +277,42 @@ export default function ProductDetailPage() {
     setAiEnhancing(true)
 
     try {
-      const response = await fetch('/api/ai/generate', {
+      const response = await fetch('/api/ai/enhance-product', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          productIds: [product.id],
-          regenerate: !!product.aiContent
+          productId: product.id,
+          includeMarketResearch: true,
+          includePricing: true
         })
       })
 
       if (response.ok) {
         const result = await response.json()
-        if (result.summary.completed > 0) {
-          await fetchProduct()
-          alert('AI content generated successfully!')
+        
+        // Show comprehensive enhancement results
+        const enhancements = []
+        if (result.externalData) enhancements.push('External data fetched')
+        if (result.marketResearch) enhancements.push('Market research completed')
+        if (result.aiContent) enhancements.push('AI content generated')
+        
+        const message = `Product enhanced successfully!\n\n• ${enhancements.join('\n• ')}`
+        
+        if (result.marketResearch?.suggestedPrice) {
+          const priceMessage = `\n\nPricing Update:\n• Suggested price: $${result.marketResearch.suggestedPrice}\n• Market confidence: ${(result.marketResearch.confidence * 100).toFixed(0)}%`
+          alert(message + priceMessage)
         } else {
-          alert('AI content generation failed')
+          alert(message)
         }
+        
+        await fetchProduct()
       } else {
-        throw new Error('Failed to generate AI content')
+        const errorData = await response.json()
+        alert(`Enhancement failed: ${errorData.error || 'Unknown error'}`)
       }
     } catch (error) {
-      console.error('Error generating AI content:', error)
-      alert('Error generating AI content. Please try again.')
+      console.error('Error enhancing product:', error)
+      alert('Error enhancing product. Please try again.')
     } finally {
       setAiEnhancing(false)
     }
@@ -689,11 +702,16 @@ export default function ProductDetailPage() {
 
   return (
     <MainLayout
-      title={product.title || `Product ${product.upc}`}
-      subtitle={`UPC: ${product.upc}${product.brand ? ` • Brand: ${product.brand}` : ''}${product.aiContent ? ` • AI Content: ${product.aiContent.status}` : ''}`}
       actions={actions}
     >
       <div className="p-6">
+        {/* Page Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-foreground">{product.title || `Product ${product.upc}`}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            UPC: {product.upc}{product.brand ? ` • Brand: ${product.brand}` : ''}{product.aiContent ? ` • AI Content: ${product.aiContent.status}` : ''}
+          </p>
+        </div>
 
       {/* Tab Navigation */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">

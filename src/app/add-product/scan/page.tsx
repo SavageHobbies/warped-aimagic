@@ -9,7 +9,6 @@ import { useRouter } from 'next/navigation'
 export default function ScanProductPage() {
   const [upc, setUpc] = useState('')
   const [isScanning, setIsScanning] = useState(false)
-  const [searchResults, setSearchResults] = useState(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
@@ -38,11 +37,13 @@ export default function ScanProductPage() {
   }
 
   return (
-    <MainLayout
-      title="Scan Product"
-      subtitle="Step 1 of 6 - Product Identification"
-    >
+    <MainLayout>
       <div className="p-6">
+        {/* Page Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-foreground">Scan Product</h1>
+          <p className="text-sm text-muted-foreground mt-1">Step 1 of 6 - Product Identification</p>
+        </div>
         <div className="max-w-4xl mx-auto">
           {/* Progress indicator */}
           <div className="mb-8">

@@ -45,6 +45,7 @@ interface RateLimitInfo {
 
 class UPCItemDBService {
   private baseUrl = 'https://api.upcitemdb.com/prod/trial/lookup'
+  private searchUrl = 'https://api.upcitemdb.com/prod/trial/search'
   private rateLimit: RateLimitInfo = {
     limit: 100,
     remaining: 100,
@@ -52,6 +53,8 @@ class UPCItemDBService {
     current: 0,
     lastRequestTime: 0
   }
+  private searchCount: number = 0
+  private readonly DAILY_SEARCH_LIMIT = 20
 
   async lookupProduct(upc: string): Promise<UPCItemResponse> {
     // Rate limiting check
@@ -105,6 +108,70 @@ class UPCItemDBService {
     return data
   }
 
+  /**
+   * Search for products by name/title to find UPC codes
+   * Limited to 20 searches per day by API
+   */
+  async searchProductByName(productName: string, brand?: string): Promise<UPCItemResponse> {
+    // Check search limit (20 per day)
+    if (this.searchCount >= this.DAILY_SEARCH_LIMIT) {
+      throw new Error(`Daily search limit exceeded (${this.DAILY_SEARCH_LIMIT} searches per day)`)
+    }
+
+    // Rate limiting check
+    const now = Date.now()
+    const timeSinceLastRequest = now - this.rateLimit.lastRequestTime
+    
+    // Enforce minimum 10 second delay between requests
+    if (timeSinceLastRequest < 10000) {
+      const waitTime = 10000 - timeSinceLastRequest
+      await this.sleep(waitTime)
+    }
+
+    // Build search query - combine product name and brand for better results
+    let searchQuery = productName.trim()
+    if (brand && brand.trim()) {
+      searchQuery = `${brand.trim()} ${searchQuery}`
+    }
+
+    const url = `${this.searchUrl}?s=${encodeURIComponent(searchQuery)}`
+    
+    console.log(`🔍 Searching UPCItemDB for product: "${searchQuery}" (Search ${this.searchCount + 1}/${this.DAILY_SEARCH_LIMIT})`)
+    
+    this.rateLimit.lastRequestTime = Date.now()
+    this.searchCount++
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    // Update rate limit info from headers
+    this.updateRateLimitInfo(response.headers)
+
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('Retry-After')
+      const waitTime = retryAfter ? parseInt(retryAfter) : 60
+      throw new Error(`Rate limit exceeded. Retry after ${waitTime} seconds.`)
+    }
+
+    if (!response.ok) {
+      throw new Error(`Search API request failed with status ${response.status}: ${response.statusText}`)
+    }
+
+    const data: UPCItemResponse = await response.json()
+    
+    console.log(`🔍 Search Results for "${searchQuery}":`, {
+      total: data.total,
+      found: data.items?.length || 0,
+      searchesRemaining: this.DAILY_SEARCH_LIMIT - this.searchCount
+    })
+    
+    return data
+  }
+
   private updateRateLimitInfo(headers: Headers) {
     const limit = headers.get('x-ratelimit-limit')
     const remaining = headers.get('x-ratelimit-remaining')
@@ -125,6 +192,19 @@ class UPCItemDBService {
 
   getRateLimitInfo(): RateLimitInfo {
     return { ...this.rateLimit }
+  }
+
+  getSearchCount(): { used: number; remaining: number; limit: number } {
+    return {
+      used: this.searchCount,
+      remaining: this.DAILY_SEARCH_LIMIT - this.searchCount,
+      limit: this.DAILY_SEARCH_LIMIT
+    }
+  }
+
+  resetSearchCount(): void {
+    this.searchCount = 0
+    console.log('🔄 Search count reset for new day')
   }
 
   // Mock data for development/testing

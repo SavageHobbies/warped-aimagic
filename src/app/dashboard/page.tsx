@@ -1,22 +1,18 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import MainLayout from '@/components/MainLayout'
 import { 
   Package, 
-  TrendingUp, 
   Eye, 
   DollarSign, 
   Plus, 
   Scan,
   Bot,
-  ShoppingCart,
   ArrowUp,
   ArrowDown,
-  Clock,
   CheckCircle,
-  Activity,
-  BarChart3
+  Activity
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -249,11 +245,22 @@ export default function DashboardPage() {
   ])
 
   return (
-    <MainLayout 
-      title="Welcome back, Alex!"
-      subtitle="Here's what's happening with your inventory today"
-    >
+    <MainLayout>
       <div className="p-6 space-y-6">
+        {/* Page Header */}
+        <div className="mb-6">
+          <div className="flex items-center space-x-3 mb-2">
+            <div>
+              <h1 className="text-2xl font-bold text-foreground transition-colors duration-200">
+                Welcome back, Alex!
+              </h1>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Here's what's happening with your inventory today
+          </p>
+        </div>
+        
         {/* Metrics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <MetricCard

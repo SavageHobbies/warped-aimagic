@@ -52,27 +52,37 @@ class GeminiVisionService {
         }
       })
 
-      const prompt = `Analyze this image and identify any products visible. CRITICAL: Look for UPC/barcode numbers first - they are the most important identifier.
+      const prompt = `CRITICAL PRIORITY: Look for UPC/EAN/barcode numbers FIRST - scan every part of the image carefully!
 
-For each product found:
-1. FIRST: Look carefully for any UPC/EAN/barcode numbers (12-13 digits) - check packaging, labels, stickers
-2. Provide the product name (be specific, include model numbers if visible)
-3. Identify the brand/manufacturer
-4. Describe the product briefly
-5. Estimate your confidence level (0-1)
-6. Suggest a product category
-7. Extract any visible text, specifications, or attributes
+Analyze this product image and:
 
-Return the response in this exact JSON format:
+🔍 STEP 1 - BARCODE DETECTION (HIGHEST PRIORITY):
+- Look for UPC codes (12 digits)
+- Look for EAN codes (13 digits) 
+- Look for any barcode numbers on packaging, labels, stickers, price tags
+- Check corners, edges, back of packaging if visible
+- Numbers often appear as: 0 12345 67890 1 or 1 234567 890123
+
+📦 STEP 2 - PRODUCT IDENTIFICATION:
+- Product name (be specific, include model/variant if visible)
+- Brand/manufacturer name
+- Brief description
+- Product category
+- Visible attributes (color, size, model)
+
+🎯 STEP 3 - CONFIDENCE ASSESSMENT:
+- Rate confidence 0.0-1.0 based on image clarity and text visibility
+
+Return EXACTLY this JSON format:
 {
   "candidates": [
     {
-      "name": "Product name with model if visible",
+      "name": "Specific product name with model if visible",
       "brand": "Brand name",
       "description": "Brief product description",
       "confidence": 0.9,
       "category": "Product category",
-      "upc": "UPC/barcode number if visible (PRIORITY)",
+      "upc": "UPC/EAN/barcode number - CRITICAL TO FIND",
       "attributes": {
         "color": "if visible",
         "size": "if visible",
@@ -80,13 +90,13 @@ Return the response in this exact JSON format:
       }
     }
   ],
-  "extractedText": "Any text visible in the image",
-  "imageDescription": "Overall description of what's in the image",
-  "suggestedCategory": "Most likely product category",
-  "foundUPC": "UPC/barcode if clearly visible"
+  "extractedText": "All text visible in the image",
+  "imageDescription": "Overall description", 
+  "suggestedCategory": "Most likely category",
+  "foundUPC": "PRIMARY UPC/barcode if found anywhere in image"
 }
 
-Focus on accuracy and UPC extraction. If you can see a UPC/barcode, include it in both the candidate and foundUPC fields.`
+REMEMBER: UPC/barcode detection is the TOP PRIORITY! Look everywhere in the image.`
 
       const imagePart = {
         inlineData: {
@@ -265,7 +275,15 @@ Keep it concise but informative (150-200 words).`
       // Validate and clean up the response
       return {
         candidates: Array.isArray(parsed.candidates) 
-          ? parsed.candidates.map((c: any) => ({
+          ? parsed.candidates.map((c: {
+              name?: string
+              brand?: string
+              description?: string
+              confidence?: number
+              category?: string
+              upc?: string
+              attributes?: Record<string, unknown>
+            }) => ({
               name: c.name || 'Unknown Product',
               brand: c.brand,
               description: c.description,

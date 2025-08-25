@@ -9,7 +9,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const draft = await prisma.listingDraft.findUnique({
+    const draft = await prisma.draft.findUnique({
       where: { id },
       include: {
         product: {
@@ -59,7 +59,7 @@ export async function PUT(
       body.price = new Prisma.Decimal(body.price)
     }
 
-    const draft = await prisma.listingDraft.update({
+    const draft = await prisma.draft.update({
       where: { id },
       data: body,
       include: {
@@ -84,7 +84,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
-    await prisma.listingDraft.delete({
+    await prisma.draft.delete({
       where: { id }
     })
 

@@ -15,11 +15,8 @@ export async function POST(request: NextRequest) {
     // Create a scan session in the database
     const dbSession = await prisma.scanSession.create({
       data: {
-        name: session.name || `Session ${new Date().toISOString()}`,
-        status: 'completed',
-        totalItems: session.totalItems,
-        uniqueItems: session.uniqueItems,
-        completedAt: new Date()
+        sessionId: session.id || `session_${Date.now()}`,
+        status: 'completed'
       }
     })
 
@@ -56,16 +53,6 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        // Create scan item record
-        await prisma.scanItem.create({
-          data: {
-            sessionId: dbSession.id,
-            productId: product.id,
-            quantity: item.quantity,
-            scannedAt: new Date(item.scannedAt)
-          }
-        })
-
         processedItems.push({
           upc: item.upc,
           title: item.title || product.title,
@@ -85,18 +72,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Log the API call
-    await prisma.apiLog.create({
-      data: {
-        service: 'session-processing',
-        endpoint: '/api/sessions/process',
-        method: 'POST',
-        statusCode: 200,
-        requestData: JSON.stringify({ sessionId: session.id, itemCount: session.items.length }),
-        responseData: JSON.stringify({ processedItems: processedItems.length })
-      }
-    })
-
     return NextResponse.json({
       success: true,
       message: `Successfully processed ${processedItems.length} items`,
@@ -113,21 +88,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error processing session:', error)
     
-    // Log error
-    try {
-      await prisma.apiLog.create({
-        data: {
-          service: 'session-processing',
-          endpoint: '/api/sessions/process',
-          method: 'POST',
-          statusCode: 500,
-          errorMessage: error instanceof Error ? error.message : 'Unknown error'
-        }
-      })
-    } catch (logError) {
-      console.error('Error logging session processing error:', logError)
-    }
-
     return NextResponse.json(
       { 
         success: false,

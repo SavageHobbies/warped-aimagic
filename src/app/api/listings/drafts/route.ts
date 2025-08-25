@@ -6,18 +6,16 @@ import { Prisma } from '@prisma/client'
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
-    const status = searchParams.get('status')
-    const marketplace = searchParams.get('marketplace')
+    const platform = searchParams.get('platform')
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
     const skip = (page - 1) * limit
 
-    const where: Prisma.ListingDraftWhereInput = {}
-    if (status) where.status = status
-    if (marketplace) where.marketplace = marketplace
+    const where: Prisma.DraftWhereInput = {}
+    if (platform) where.platform = platform
 
     const [drafts, total] = await Promise.all([
-      prisma.listingDraft.findMany({
+      prisma.draft.findMany({
         where,
         include: {
           product: {
@@ -33,7 +31,7 @@ export async function GET(request: NextRequest) {
         skip,
         take: limit
       }),
-      prisma.listingDraft.count({ where })
+      prisma.draft.count({ where })
     ])
 
     return NextResponse.json({
@@ -58,7 +56,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { productId, marketplace = 'EBAY', price, quantity = 1, ...otherFields } = body
+    const { productId, marketplace = 'EBAY', price, quantity = 1, title, description, notes } = body
 
     // Verify product exists
     const product = await prisma.product.findUnique({
@@ -72,23 +70,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Generate SKU if not present
-    if (!product.sku) {
-      await prisma.product.update({
-        where: { id: productId },
-        data: { sku: `SKU-${product.upc}` }
-      })
-    }
-
-    // Create the draft
-    const draft = await prisma.listingDraft.create({
+    // Create the draft using our actual Draft model
+    const draft = await prisma.draft.create({
       data: {
         productId,
-        marketplace,
-        price: new Prisma.Decimal(price || product.lowestRecordedPrice || 0),
-        quantity: quantity || product.quantity || 1,
-        conditionId: product.condition === 'New' ? 1000 : 3000, // eBay condition IDs
-        ...otherFields
+        title: title || product.title,
+        description: description || product.description,
+        price: price || product.lowestRecordedPrice || 0,
+        platform: marketplace,
+        notes: notes || null
       },
       include: {
         product: true
@@ -99,7 +89,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error creating listing draft:', error)
     return NextResponse.json(
-      { error: 'Failed to create listing draft' },
+      { error: 'Failed to create listing draft', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
@@ -118,12 +108,7 @@ export async function PATCH(request: NextRequest) {
       )
     }
 
-    // Handle price update if present
-    if (updates.price !== undefined) {
-      updates.price = new Prisma.Decimal(updates.price)
-    }
-
-    const result = await prisma.listingDraft.updateMany({
+    const result = await prisma.draft.updateMany({
       where: { id: { in: ids } },
       data: updates
     })

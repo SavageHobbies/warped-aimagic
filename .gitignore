@@ -12,6 +12,7 @@ out/
 # Prisma
 prisma/dev.db
 prisma/dev.db-journal
+prisma/migrations/
 
 # Logs
 npm-debug.log*
@@ -27,3 +28,35 @@ yarn-error.log*
 
 # System files
 Thumbs.db
+
+# Test coverage
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Package manager
+.pnpm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Optional npm cache directory
+.npm
+
+# ESLint cache
+.eslintcache
+
+# Turbopack cache
+.turbo
+
+# Vercel
+.vercel
+
+# TypeScript cache
+*.tsbuildinfo
+next-env.d.ts

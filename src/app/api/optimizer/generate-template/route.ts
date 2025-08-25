@@ -4,11 +4,11 @@ import path from 'path'
 import fs from 'fs/promises'
 
 // Dynamic import for the optimizer module
-async function generateEbayTemplate(upc: string, productInfo: any) {
+async function generateEbayTemplate(upc: string, productInfo: Record<string, unknown>) {
   try {
     // Use dynamic import to load the CommonJS module
     const optimizerPath = path.join(process.cwd(), 'optimizer', 'upc-optimizer.js')
-    const optimizer = require(optimizerPath)
+    const optimizer = await import(optimizerPath)
     
     if (!optimizer.optimizeByUPC) {
       throw new Error('Template generation function not found in optimizer')
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   try {
     console.log('Template Generation API: Starting template generation...')
     const body = await request.json()
-    const { productId, includeMarketData = true, templateStyle = 'professional' } = body
+    const { productId, includeMarketData = true } = body
 
     if (!productId) {
       return NextResponse.json(
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     console.log('Template Generation API: Found product:', product.title || product.upc)
 
     // Prepare product info for template generation
-    const productInfo = {
+    const productInfo: Record<string, unknown> = {
       title: product.title || 'Quality Product',
       description: product.description || '',
       price: product.lowestRecordedPrice || 0,
@@ -83,7 +83,9 @@ export async function POST(request: NextRequest) {
         Weight: product.weight ? `${product.weight}${product.weightUnit || 'g'}` : undefined
       },
       seller: 'Professional Seller',
-      location: 'USA'
+      location: 'USA',
+      keyFeatures: [],
+      uniqueSellingPoints: []
     }
 
     // If AI content exists, use it to enhance the template
@@ -100,7 +102,7 @@ export async function POST(request: NextRequest) {
         productInfo.keyFeatures = keyFeatures
         productInfo.uniqueSellingPoints = uniqueSellingPoints
         productInfo.specifications = {
-          ...productInfo.specifications,
+          ...(productInfo.specifications as Record<string, unknown>),
           ...itemSpecifics
         }
       } catch (parseError) {
@@ -112,7 +114,7 @@ export async function POST(request: NextRequest) {
 
     // Generate the template
     const startTime = Date.now()
-    const result = await generateEbayTemplate(product.upc, productInfo)
+    const result = await generateEbayTemplate(product.upc || product.id, productInfo)
     const processingTime = Date.now() - startTime
 
     console.log('Template Generation API: Template generated in', processingTime, 'ms')
@@ -121,7 +123,8 @@ export async function POST(request: NextRequest) {
     const { html, summary, marketData, product: optimizedContent } = result
 
     // Save the generated template (optional)
-    const templatePath = path.join(process.cwd(), 'generated-templates', `${product.upc}-template.html`)
+    const upcOrId = product.upc || product.id
+    const templatePath = path.join(process.cwd(), 'generated-templates', `${upcOrId}-template.html`)
     try {
       await fs.mkdir(path.dirname(templatePath), { recursive: true })
       await fs.writeFile(templatePath, html, 'utf-8')
@@ -139,7 +142,7 @@ export async function POST(request: NextRequest) {
       summary,
       optimizedContent,
       marketData: includeMarketData ? marketData : undefined,
-      templatePath: `generated-templates/${product.upc}-template.html`,
+      templatePath: `generated-templates/${upcOrId}-template.html`,
       processingTime
     })
 
@@ -268,7 +271,7 @@ export async function GET(request: NextRequest) {
     // Check if we have a generated template file
     const product = await prisma.product.findUnique({
       where: { id: productId },
-      select: { upc: true }
+      select: { upc: true, id: true }
     })
 
     if (!product) {
@@ -278,17 +281,18 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const templatePath = path.join(process.cwd(), 'generated-templates', `${product.upc}-template.html`)
+    const upcOrId = product.upc || product.id
+    const templatePath = path.join(process.cwd(), 'generated-templates', `${upcOrId}-template.html`)
     
     try {
       const html = await fs.readFile(templatePath, 'utf-8')
       return NextResponse.json({
         success: true,
         html,
-        templatePath: `generated-templates/${product.upc}-template.html`,
+        templatePath: `generated-templates/${upcOrId}-template.html`,
         cached: true
       })
-    } catch (readError) {
+    } catch {
       return NextResponse.json({
         success: false,
         message: 'No template found. Please generate a new template.',

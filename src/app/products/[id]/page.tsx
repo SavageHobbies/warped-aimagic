@@ -126,6 +126,8 @@ export default function ProductDetailPage() {
   const [showPricingModal, setShowPricingModal] = useState(false)
   const [marketData, setMarketData] = useState<any>(null)
   const [fetchingMarketData, setFetchingMarketData] = useState(false)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [creatingDraft, setCreatingDraft] = useState(false)
 
   useEffect(() => {
     fetchProduct()
@@ -226,25 +228,30 @@ export default function ProductDetailPage() {
   const handleFieldChange = (field: string, value: any) => {
     if (product) {
       setProduct({ ...product, [field]: value })
+      setHasUnsavedChanges(true)
     }
   }
 
   const handleItemSpecificChange = (name: string, value: string) => {
     setItemSpecifics(prev => ({ ...prev, [name]: value }))
+    setHasUnsavedChanges(true)
   }
 
   const addCustomSpecific = () => {
     setCustomSpecifics([...customSpecifics, { name: '', value: '' }])
+    setHasUnsavedChanges(true)
   }
 
   const removeCustomSpecific = (index: number) => {
     setCustomSpecifics(customSpecifics.filter((_, i) => i !== index))
+    setHasUnsavedChanges(true)
   }
 
   const updateCustomSpecific = (index: number, field: 'name' | 'value', value: string) => {
     const updated = [...customSpecifics]
     updated[index][field] = value
     setCustomSpecifics(updated)
+    setHasUnsavedChanges(true)
   }
 
   const handleCategoryChange = (categoryKey: string) => {
@@ -402,6 +409,26 @@ export default function ProductDetailPage() {
     }
   }, [selectedCategory])
 
+  // Reset unsaved changes flag when product is loaded
+  useEffect(() => {
+    if (product) {
+      setHasUnsavedChanges(false)
+    }
+  }, [product?.id])
+
+  // Add keyboard shortcut for saving (Ctrl+S)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault()
+        saveProduct()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [product, itemSpecifics, customSpecifics])
+
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }))
   }
@@ -421,11 +448,24 @@ export default function ProductDetailPage() {
       })
       
       if (response.ok) {
-        // Show success toast
-        console.log('Product saved successfully')
+        setHasUnsavedChanges(false)
+        // Show success feedback with a brief highlight
+        const successMsg = document.createElement('div')
+        successMsg.innerHTML = '✅ Product saved successfully!'
+        successMsg.className = 'fixed top-20 right-6 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right'
+        document.body.appendChild(successMsg)
+        setTimeout(() => document.body.removeChild(successMsg), 3000)
+      } else {
+        throw new Error('Failed to save product')
       }
     } catch (error) {
       console.error('Error saving product:', error)
+      // Show error feedback
+      const errorMsg = document.createElement('div')
+      errorMsg.innerHTML = '❌ Failed to save product. Please try again.'
+      errorMsg.className = 'fixed top-20 right-6 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right'
+      document.body.appendChild(errorMsg)
+      setTimeout(() => document.body.removeChild(errorMsg), 4000)
     } finally {
       setSaving(false)
     }
@@ -535,6 +575,53 @@ export default function ProductDetailPage() {
     }
   }
 
+  const createEbayDraft = async () => {
+    if (!product || creatingDraft) return
+    setCreatingDraft(true)
+    
+    try {
+      const response = await fetch('/api/listings/drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: product.id,
+          marketplace: 'EBAY',
+          price: product.lowestRecordedPrice || 0,
+          quantity: product.quantity || 1,
+          title: product.title,
+          description: product.description
+        })
+      })
+      
+      if (response.ok) {
+        const draft = await response.json()
+        // Show success feedback
+        const successMsg = document.createElement('div')
+        successMsg.innerHTML = '✅ eBay draft created successfully!'
+        successMsg.className = 'fixed top-20 right-6 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right'
+        document.body.appendChild(successMsg)
+        setTimeout(() => document.body.removeChild(successMsg), 3000)
+        
+        // Optionally redirect to listings page
+        router.push('/listings')
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to create eBay draft')
+      }
+    } catch (error) {
+      console.error('Error creating eBay draft:', error)
+      // Show error feedback
+      const errorMsg = document.createElement('div')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      errorMsg.innerHTML = `❌ Failed to create eBay draft: ${errorMessage}`
+      errorMsg.className = 'fixed top-20 right-6 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right'
+      document.body.appendChild(errorMsg)
+      setTimeout(() => document.body.removeChild(errorMsg), 4000)
+    } finally {
+      setCreatingDraft(false)
+    }
+  }
+
   const handleImageDragStart = (e: React.DragEvent, index: number) => {
     setDraggingImage(index)
     e.dataTransfer.effectAllowed = 'move'
@@ -580,9 +667,19 @@ export default function ProductDetailPage() {
 
   if (loading) {
     return (
-      <MainLayout title="Loading...">
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <MainLayout>
+        <div className="p-6">
+          {/* Page Header */}
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-foreground">Loading...</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Please wait while we load the product details
+            </p>
+          </div>
+          
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          </div>
         </div>
       </MainLayout>
     )
@@ -590,9 +687,19 @@ export default function ProductDetailPage() {
 
   if (!product) {
     return (
-      <MainLayout title="Product Not Found">
-        <div className="p-6 text-center">
-          <p className="text-muted-foreground">Product not found</p>
+      <MainLayout>
+        <div className="p-6">
+          {/* Page Header */}
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-foreground">Product Not Found</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              The product you're looking for doesn't exist
+            </p>
+          </div>
+          
+          <div className="text-center">
+            <p className="text-muted-foreground">Product not found</p>
+          </div>
         </div>
       </MainLayout>
     )
@@ -600,16 +707,74 @@ export default function ProductDetailPage() {
 
   return (
     <MainLayout
-      title="Product Details"
-      subtitle="Manage your product information"
-      icon={<Package className="w-8 h-8 text-primary" />}
       actions={
-        <Button variant="outline" size="sm" onClick={() => router.push('/inventory')}>
-          Back to Inventory
-        </Button>
+        <div className="flex items-center space-x-3">
+          {/* Save Button - Always visible in header */}
+          <Button 
+            variant={hasUnsavedChanges ? "primary" : "outline"}
+            size="sm" 
+            onClick={saveProduct}
+            disabled={saving}
+            className={`
+              transition-all duration-200 min-w-[100px]
+              ${hasUnsavedChanges 
+                ? 'bg-green-600 hover:bg-green-700 text-white shadow-lg scale-105' 
+                : 'hover:bg-accent'
+              }
+              ${saving ? 'animate-pulse' : ''}
+            `}
+          >
+            {saving ? (
+              <>
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                {hasUnsavedChanges ? 'Save Changes' : 'Saved'}
+              </>
+            )}
+          </Button>
+          
+          {/* Unsaved changes indicator */}
+          {hasUnsavedChanges && (
+            <div className="flex items-center text-orange-600 dark:text-orange-400 text-sm">
+              <div className="w-2 h-2 bg-orange-500 rounded-full mr-2 animate-pulse"></div>
+              Unsaved changes
+            </div>
+          )}
+          
+          {/* Back button */}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => {
+              if (hasUnsavedChanges) {
+                const confirmLeave = confirm('You have unsaved changes. Are you sure you want to leave?')
+                if (!confirmLeave) return
+              }
+              router.push('/inventory')
+            }}
+          >
+            Back to Inventory
+          </Button>
+        </div>
       }
     >
       <div className="p-6 max-w-7xl mx-auto">
+        {/* Page Header */}
+        <div className="mb-6">
+          <div className="flex items-center space-x-3 mb-2">
+            <Package className="w-8 h-8 text-primary" />
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">Product Details</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Manage your product information
+              </p>
+            </div>
+          </div>
+        </div>
         {/* Product Header Card */}
         <div className="bg-card rounded-xl border border-border mb-6">
           {/* Product Title & Basic Info */}
@@ -1459,9 +1624,18 @@ export default function ProductDetailPage() {
                 <CardTitle>Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button variant="outline" className="w-full justify-start">
-                  <Send className="w-4 h-4 mr-2" />
-                  Create eBay Draft
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={createEbayDraft}
+                  disabled={creatingDraft}
+                >
+                  {creatingDraft ? (
+                    <div className="w-4 h-4 mr-2 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4 mr-2" />
+                  )}
+                  {creatingDraft ? 'Creating Draft...' : 'Create eBay Draft'}
                 </Button>
                 <Button variant="outline" className="w-full justify-start">
                   <BarChart className="w-4 h-4 mr-2" />

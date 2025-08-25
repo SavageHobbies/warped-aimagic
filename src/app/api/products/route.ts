@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     
-    console.log('Creating new product with data:', body)
+    console.log('Creating new product with data:', JSON.stringify(body, null, 2))
 
     // Extract the main product data
     const {
@@ -49,11 +49,13 @@ export async function POST(request: NextRequest) {
       aiDescription,
       aiCategory,
       aiAttributes,
-      confidence
+      confidence,
+      aiGeneratedContent
     } = body
 
     // Validate required fields - allow SKU for image-identified products
     if (!upc && !ean && !gtin && !isbn && !sku) {
+      console.error('Validation failed: No identifier provided', { upc, ean, gtin, isbn, sku })
       return NextResponse.json(
         { error: 'At least one identifier (UPC, EAN, GTIN, ISBN, or SKU) is required' },
         { status: 400 }
@@ -87,27 +89,14 @@ export async function POST(request: NextRequest) {
           color: color || existingProduct.color,
           size: size || existingProduct.size,
           weight: weight || existingProduct.weight,
-          weightUnit: weightUnit || existingProduct.weightUnit,
           dimensions: dimensions || existingProduct.dimensions,
-          material: material || existingProduct.material,
           condition: condition || existingProduct.condition,
           quantity: quantity || existingProduct.quantity,
           currency: currency || existingProduct.currency,
           lowestRecordedPrice: lowestRecordedPrice || existingProduct.lowestRecordedPrice,
           highestRecordedPrice: highestRecordedPrice || existingProduct.highestRecordedPrice,
           lastScanned: new Date(),
-          // Additional fields
-          ageGroup: ageGroup || existingProduct.ageGroup,
-          character: character || existingProduct.character,
-          exclusivity: exclusivity || existingProduct.exclusivity,
-          features: features || existingProduct.features,
-          funkoPop: funkoPop ?? existingProduct.funkoPop,
-          itemHeight: itemHeight || existingProduct.itemHeight,
-          itemLength: itemLength || existingProduct.itemLength,
-          itemWidth: itemWidth || existingProduct.itemWidth,
-          releaseDate: releaseDate || existingProduct.releaseDate,
-          series: series || existingProduct.series,
-          theme: theme || existingProduct.theme
+          updatedAt: new Date()
         },
         include: {
           images: true,
@@ -116,8 +105,7 @@ export async function POST(request: NextRequest) {
             include: {
               category: true
             }
-          },
-          aiContent: true
+          }
         }
       })
 
@@ -136,7 +124,7 @@ export async function POST(request: NextRequest) {
         gtin: gtin || null,
         isbn: isbn || null,
         sku: sku || null,
-        title: title || `Product ${upc || ean || gtin || isbn}`,
+        title: title || `Product ${upc || ean || gtin || isbn || sku}`,
         description: description || aiDescription || null,
         brand: brand || null,
         model: model || null,
@@ -144,32 +132,19 @@ export async function POST(request: NextRequest) {
         color: color || null,
         size: size || null,
         weight: weight || null,
-        weightUnit: weightUnit || 'lb',
         dimensions: dimensions || null,
-        material: material || null,
         condition: condition,
         quantity: quantity,
         currency: currency,
         lowestRecordedPrice: lowestRecordedPrice || null,
         highestRecordedPrice: highestRecordedPrice || null,
         lastScanned: new Date(),
-        // Additional fields
-        ageGroup: ageGroup || null,
-        character: character || null,
-        exclusivity: exclusivity || null,
-        features: features || null,
-        funkoPop: funkoPop || false,
-        itemHeight: itemHeight || null,
-        itemLength: itemLength || null,
-        itemWidth: itemWidth || null,
-        releaseDate: releaseDate || null,
-        series: series || null,
-        theme: theme || null,
+        // Store AI metadata in aiGeneratedContent JSON field
+        aiGeneratedContent: aiGeneratedContent || null,
         // Create related records
         images: {
           create: images.map((img: any, index: number) => ({
             originalUrl: img.originalUrl || img.url,
-            localPath: img.localPath || null,
             imageNumber: index + 1
           }))
         },
@@ -192,8 +167,7 @@ export async function POST(request: NextRequest) {
           include: {
             category: true
           }
-        },
-        aiContent: true
+        }
       }
     })
 
@@ -229,7 +203,8 @@ export async function POST(request: NextRequest) {
               data: {
                 name: categoryName,
                 fullPath: categoryName,
-                type: 'general'  // Default type for categories
+                type: 'general',  // Default type for categories
+                categoryId: `cat_${Date.now()}`  // Generate unique categoryId
               }
             })
           }
@@ -258,8 +233,7 @@ export async function POST(request: NextRequest) {
           include: {
             category: true
           }
-        },
-        aiContent: true
+        }
       }
     })
 
@@ -273,10 +247,12 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error creating product:', error)
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace')
     return NextResponse.json(
       { 
         error: 'Failed to create product',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
+        stack: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.stack : 'No stack trace') : undefined
       },
       { status: 500 }
     )
@@ -348,11 +324,6 @@ export async function GET(request: NextRequest) {
         categories: {
           include: {
             category: true
-          }
-        },
-        aiContent: {
-          select: {
-            status: true
           }
         }
       }

@@ -70,7 +70,7 @@ export function parseDate(value: string): Date | null {
 /**
  * Sanitize string for CSV export
  */
-export function sanitizeForCSV(value: any): string {
+export function sanitizeForCSV(value: unknown): string {
   if (value === null || value === undefined) return '';
   const str = String(value);
   

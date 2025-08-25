@@ -4,7 +4,7 @@
  */
 
 import { prisma } from './prisma'
-import { getCategorySpec, type EbayCategorySpec } from './ebay-categories'
+import { getCategorySpec } from './ebay-categories'
 
 export interface CategoryTemplate {
   id: string
@@ -13,7 +13,7 @@ export interface CategoryTemplate {
   templateData: Record<string, string>
   isDefault: boolean
   isSystemDefault: boolean
-  userId?: string
+  userId?: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -145,7 +145,8 @@ export async function getCategoryTemplates(
       ...systemTemplates,
       ...userTemplates.map(template => ({
         ...template,
-        templateData: template.templateData as Record<string, string>
+        templateData: template.templateData as Record<string, string>,
+        userId: template.userId || undefined
       }))
     ]
   } catch (error) {
@@ -215,7 +216,8 @@ export async function saveTemplate(
 
     return {
       ...template,
-      templateData: template.templateData as Record<string, string>
+      templateData: template.templateData as Record<string, string>,
+      userId: template.userId || undefined
     }
   } catch (error) {
     console.error('Error saving template:', error)

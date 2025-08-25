@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import MainLayout from '@/components/MainLayout'
 import Button from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Package, Plus, FileText, Upload, Send, Trash2, Edit, DollarSign } from 'lucide-react'
+import { Package, Plus, FileText, Upload, Send, Trash2, Edit, DollarSign, List } from 'lucide-react'
 
 interface ListingDraft {
   id: string
@@ -113,9 +113,6 @@ export default function ListingsPage() {
 
   return (
     <MainLayout
-      title="Listings"
-      subtitle="Manage your product listings and drafts"
-      icon={<List className="w-8 h-8 text-primary" />}
       actions={
         <div className="flex space-x-2">
           <Button variant="outline" size="sm">
@@ -130,6 +127,23 @@ export default function ListingsPage() {
       }
     >
       <div className="p-6">
+        {/* Page Header */}
+        <div className="mb-6">
+          <div className="flex items-center space-x-3 mb-2">
+            <div className="transform transition-transform duration-200 hover:scale-110">
+              <List className="w-8 h-8 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground transition-colors duration-200">
+                Listings
+              </h1>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Manage your product listings and drafts
+          </p>
+        </div>
+        
         {/* Filters and Actions */}
         <Card className="mb-6">
           <CardContent className="p-4">
@@ -292,6 +306,3 @@ export default function ListingsPage() {
     </MainLayout>
   )
 }
-
-// Fix for missing List import
-import { List } from 'lucide-react'

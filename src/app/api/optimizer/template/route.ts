@@ -44,7 +44,7 @@ async function generateEbayTemplate(product: any, marketData?: MarketData): Prom
       return generateFallbackTemplate(product, marketData)
     }
 
-    const TemplateRenderer = require(optimizerPath)
+    const { TemplateRenderer } = await import(optimizerPath)
     const renderer = new TemplateRenderer()
     
     // Prepare template data

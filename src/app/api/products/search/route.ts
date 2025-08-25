@@ -18,9 +18,9 @@ export async function POST(request: NextRequest) {
     const existingProducts = await prisma.product.findMany({
       where: {
         OR: [
-          { title: { contains: query, mode: 'insensitive' } },
-          { brand: { contains: query, mode: 'insensitive' } },
-          { description: { contains: query, mode: 'insensitive' } }
+          { title: { contains: query } },
+          { brand: { contains: query } },
+          { description: { contains: query } }
         ]
       },
       take: 5,
@@ -92,14 +92,14 @@ export async function POST(request: NextRequest) {
           color: item.color || '',
           size: item.size || '',
           weight: parseFloat(item.weight) || null,
-          images: item.images ? item.images.map((url) => ({ originalUrl: url })) : [],
-          offers: item.offers ? item.offers.map((offer) => ({
+          images: item.images ? item.images.map((url: string) => ({ originalUrl: url })) : [],
+          offers: item.offers ? item.offers.map((offer: Record<string, unknown>) => ({
             merchant: offer.merchant,
             domain: offer.domain,
             title: offer.title,
             currency: offer.currency,
-            listPrice: parseFloat(offer.list_price) || null,
-            price: parseFloat(offer.price) || null,
+            listPrice: typeof offer.list_price === 'string' ? parseFloat(offer.list_price) || null : null,
+            price: typeof offer.price === 'string' ? parseFloat(offer.price) || null : null,
             shipping: offer.shipping,
             condition: offer.condition,
             availability: offer.availability,

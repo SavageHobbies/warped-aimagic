@@ -24,7 +24,7 @@ function formatPrice(price: number | null | undefined): string {
   return price.toFixed(2)
 }
 
-function formatDate(date: Date | string | null | undefined, timezone?: string): string {
+function formatDate(date: Date | string | null | undefined): string {
   if (!date) return ''
   const d = typeof date === 'string' ? new Date(date) : date
   return d.toISOString()
@@ -82,7 +82,7 @@ class CPIMapper implements ExportMapper {
       product.ean || product.upc || '',
       formatWeight(product.weight),
       options.currency || 'USD',
-      formatDate(product.updatedAt || product.lastScanned, options.timezone),
+      formatDate(product.updatedAt || product.lastScanned),
       product.notes || ''
     ]
   }
@@ -306,7 +306,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Build query based on selection
-    let whereClause: any = {}
+    const whereClause: Record<string, unknown> = {}
     
     if (selection?.ids && Array.isArray(selection.ids)) {
       whereClause.id = { in: selection.ids }
@@ -330,13 +330,14 @@ export async function POST(request: NextRequest) {
       }
       
       if (filters.minStock !== undefined || filters.maxStock !== undefined) {
-        whereClause.quantity = {}
+        const quantityFilter: Record<string, number> = {}
         if (filters.minStock !== undefined) {
-          whereClause.quantity.gte = filters.minStock
+          quantityFilter.gte = filters.minStock
         }
         if (filters.maxStock !== undefined) {
-          whereClause.quantity.lte = filters.maxStock
+          quantityFilter.lte = filters.maxStock
         }
+        whereClause.quantity = quantityFilter
       }
       
       if (filters.updatedAfter) {

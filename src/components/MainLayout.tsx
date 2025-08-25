@@ -7,13 +7,10 @@ import { Bell, Search, Sun, Moon, User } from 'lucide-react'
 
 interface MainLayoutProps {
   children: React.ReactNode
-  title?: string
-  subtitle?: string
   actions?: React.ReactNode
-  icon?: React.ReactNode
 }
 
-export default function MainLayout({ children, title, subtitle, actions, icon }: MainLayoutProps) {
+export default function MainLayout({ children, actions }: MainLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const { theme, toggleTheme, mounted } = useTheme()
 
@@ -32,27 +29,9 @@ export default function MainLayout({ children, title, subtitle, actions, icon }:
         {/* Top header */}
         <header className="bg-card border-b border-border px-6 py-4 transition-all duration-200">
           <div className="flex items-center justify-between">
-            {/* Title section */}
+            {/* Left side - can be used for breadcrumbs or basic info later */}
             <div className="min-w-0 flex-1">
-              {title && (
-                <div className="flex items-center space-x-3">
-                  {icon && (
-                    <div className="transform transition-transform duration-200 hover:scale-110">
-                      {icon}
-                    </div>
-                  )}
-                  <div>
-                    <h1 className="text-2xl font-bold text-foreground transition-colors duration-200">
-                      {title}
-                    </h1>
-                    {subtitle && (
-                      <p className="text-sm text-muted-foreground mt-1 transition-colors duration-200">
-                        {subtitle}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
+              {/* Keep this empty for now - just basic layout */}
             </div>
 
             {/* Actions and user menu */}

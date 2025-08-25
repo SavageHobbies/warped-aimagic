@@ -209,11 +209,14 @@ export default function ScannerPage() {
 
   return (
     <MainLayout 
-      title="Barcode Scanner"
-      subtitle="Scan barcodes to automatically add products to inventory"
       actions={actions}
     >
       <div className="p-6">
+        {/* Page Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-foreground">Barcode Scanner</h1>
+          <p className="text-sm text-muted-foreground mt-1">Scan barcodes to automatically add products to inventory</p>
+        </div>
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Scanning Interface */}

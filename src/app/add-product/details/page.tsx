@@ -87,11 +87,21 @@ function ProductDetailsContent() {
 
   if (isLoading) {
     return (
-      <MainLayout title="Loading Product Details">
-        <div className="flex items-center justify-center min-h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading product information...</p>
+      <MainLayout>
+        <div className="p-6">
+          {/* Page Header */}
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-foreground">Loading Product Details</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Please wait while we load the product information
+            </p>
+          </div>
+          
+          <div className="flex items-center justify-center min-h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading product information...</p>
+            </div>
           </div>
         </div>
       </MainLayout>
@@ -99,11 +109,16 @@ function ProductDetailsContent() {
   }
 
   return (
-    <MainLayout
-      title="Product Details"
-      subtitle="Step 2 of 6 - Review and edit product information"
-    >
+    <MainLayout>
       <div className="p-6">
+        {/* Page Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-foreground">Product Details</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Step 2 of 6 - Review and edit product information
+          </p>
+        </div>
+        
         <div className="max-w-4xl mx-auto">
           {/* Progress indicator */}
           <div className="mb-8">
@@ -387,11 +402,21 @@ export default function ProductDetailsPage() {
   return (
     <Suspense 
       fallback={
-        <MainLayout title="Loading Product Details">
-          <div className="flex items-center justify-center min-h-64">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading product information...</p>
+        <MainLayout>
+          <div className="p-6">
+            {/* Page Header */}
+            <div className="mb-6">
+              <h1 className="text-2xl font-bold text-foreground">Loading Product Details</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Please wait while we load the product information
+              </p>
+            </div>
+            
+            <div className="flex items-center justify-center min-h-64">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading product information...</p>
+              </div>
             </div>
           </div>
         </MainLayout>
