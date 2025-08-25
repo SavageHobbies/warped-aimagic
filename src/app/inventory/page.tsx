@@ -891,17 +891,35 @@ export default function InventoryPage() {
                           )}
                         </td>
                         <td className="p-3">
-                          {product.images && product.images[0]?.originalUrl ? (
-                            <img
-                              src={product.images[0].originalUrl}
-                              alt={product.title}
-                              className="w-12 h-12 object-cover rounded"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 bg-muted rounded flex items-center justify-center">
-                              <ImageIcon className="w-6 h-6 text-muted-foreground" />
-                            </div>
-                          )}
+                          <div className="relative">
+                            {product.images && product.images[0]?.originalUrl ? (
+                              <>
+                                <img
+                                  src={product.images[0].originalUrl}
+                                  alt={product.title}
+                                  className="w-12 h-12 object-cover rounded"
+                                />
+                                {product.images.length > 1 && (
+                                  <div className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full font-medium shadow-sm">
+                                    {product.images.length}
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="w-12 h-12 bg-muted rounded flex items-center justify-center relative">
+                                <ImageIcon className="w-6 h-6 text-muted-foreground" />
+                                <div className="absolute -top-1 -right-1 bg-gray-400 text-white text-xs px-1.5 py-0.5 rounded-full font-medium shadow-sm">
+                                  0
+                                </div>
+                              </div>
+                            )}
+                            {/* Image count indicator for all products */}
+                            {product.images && product.images.length > 0 && (
+                              <div className="text-xs text-muted-foreground mt-1 text-center">
+                                📷 {product.images.length} image{product.images.length !== 1 ? 's' : ''}
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3">
                           <span className={`px-2 py-1 text-xs rounded-full ${
@@ -1006,13 +1024,48 @@ export default function InventoryPage() {
                           </div>
                         </td>
                         <td className="p-3">
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            product.enhancementStatus === 'enhanced'
-                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                          }`}>
-                            {product.enhancementStatus === 'enhanced' ? '✨ Enhanced' : 'Not Enhanced'}
-                          </span>
+                          <div className="flex items-center space-x-2">
+                            {/* Enhancement Status */}
+                            {product.enhancementStatus === 'enhanced' ? (
+                              <div 
+                                className="flex items-center space-x-1 px-2 py-1 text-xs rounded-full bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200"
+                                title="Product has been AI enhanced with optimized title, description, and SEO"
+                              >
+                                <span className="text-sm">✅</span>
+                                <span className="font-medium">Enhanced</span>
+                              </div>
+                            ) : (
+                              <div 
+                                className="flex items-center space-x-1 px-2 py-1 text-xs rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"
+                                title="Product needs AI enhancement for better titles, descriptions, and optimization"
+                              >
+                                <span className="text-sm">⚠️</span>
+                                <span className="font-medium">Needs Work</span>
+                              </div>
+                            )}
+                            
+                            {/* Image Status */}
+                            {(!product.images || product.images.length === 0) && (
+                              <div 
+                                className="flex items-center space-x-1 px-2 py-1 text-xs rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                                title="Product has no images - critical for marketplace listings"
+                              >
+                                <span className="text-sm">📷</span>
+                                <span className="font-medium">No Images</span>
+                              </div>
+                            )}
+                            
+                            {/* Price Status */}
+                            {(!product.price && !product.lowestRecordedPrice) && (
+                              <div 
+                                className="flex items-center space-x-1 px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                                title="Product has no pricing information"
+                              >
+                                <span className="text-sm">💰</span>
+                                <span className="font-medium">No Price</span>
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3">
                           {product.listingDrafts && product.listingDrafts.length > 0 ? (

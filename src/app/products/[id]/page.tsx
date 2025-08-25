@@ -128,6 +128,7 @@ export default function ProductDetailPage() {
   const [fetchingMarketData, setFetchingMarketData] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [creatingDraft, setCreatingDraft] = useState(false)
+  const [fetchingImages, setFetchingImages] = useState(false)
 
   useEffect(() => {
     fetchProduct()
@@ -663,6 +664,64 @@ export default function ProductDetailPage() {
       .map((img, idx) => ({ ...img, imageNumber: idx + 1 }))
     
     setProduct({ ...product, images: newImages })
+  }
+
+  const fetchExternalImages = async () => {
+    if (!product || fetchingImages) return
+    setFetchingImages(true)
+    
+    try {
+      const response = await fetch('/api/images/fetch-external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: product.id,
+          upc: product.upc,
+          sources: ['amazon', 'ebay', 'upcitemdb']
+        })
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        
+        // Update product with new images
+        if (result.data?.images && result.data.images.length > 0) {
+          const updatedImages = [...(product.images || []), ...result.data.images]
+            .map((img, idx) => ({ ...img, imageNumber: idx + 1 }))
+          
+          setProduct({ ...product, images: updatedImages })
+          setHasUnsavedChanges(true)
+          
+          // Show success feedback
+          const successMsg = document.createElement('div')
+          successMsg.innerHTML = `✅ Fetched ${result.data.fetched} new images successfully!`
+          successMsg.className = 'fixed top-20 right-6 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right'
+          document.body.appendChild(successMsg)
+          setTimeout(() => document.body.removeChild(successMsg), 3000)
+        } else {
+          // Show info message if no images found
+          const infoMsg = document.createElement('div')
+          infoMsg.innerHTML = '📷 No new images found from external sources'
+          infoMsg.className = 'fixed top-20 right-6 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right'
+          document.body.appendChild(infoMsg)
+          setTimeout(() => document.body.removeChild(infoMsg), 3000)
+        }
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to fetch images')
+      }
+    } catch (error) {
+      console.error('Error fetching external images:', error)
+      // Show error feedback
+      const errorMsg = document.createElement('div')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      errorMsg.innerHTML = `❌ Failed to fetch images: ${errorMessage}`
+      errorMsg.className = 'fixed top-20 right-6 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right'
+      document.body.appendChild(errorMsg)
+      setTimeout(() => document.body.removeChild(errorMsg), 4000)
+    } finally {
+      setFetchingImages(false)
+    }
   }
 
   if (loading) {
@@ -1595,25 +1654,42 @@ export default function ProductDetailPage() {
                   </div>
                 </div>
                 
-                <div className="flex gap-2 mt-4">
-                  <Button variant="outline" size="sm" className="flex-1">
-                    <Upload className="w-4 h-4 mr-2" />
-                    Upload Images
-                  </Button>
-                  <Button variant="outline" size="sm" className="flex-1">
-                    <Video className="w-4 h-4 mr-2" />
-                    Upload Video
-                  </Button>
-                  {((product.images && product.images.length > 0) || (product.videos && product.videos.length > 0)) && (
-                    <Button 
-                      variant="primary" 
-                      size="sm" 
-                      onClick={saveProduct}
-                      title="Save media order"
-                    >
-                      <Save className="w-4 h-4" />
+                <div className="space-y-2 mt-4">
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="flex-1">
+                      <Upload className="w-4 h-4 mr-2" />
+                      Upload Images
                     </Button>
-                  )}
+                    <Button variant="outline" size="sm" className="flex-1">
+                      <Video className="w-4 h-4 mr-2" />
+                      Upload Video
+                    </Button>
+                    {((product.images && product.images.length > 0) || (product.videos && product.videos.length > 0)) && (
+                      <Button 
+                        variant="primary" 
+                        size="sm" 
+                        onClick={saveProduct}
+                        title="Save media order"
+                      >
+                        <Save className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                  <Button 
+                    variant="primary" 
+                    size="sm" 
+                    onClick={fetchExternalImages}
+                    disabled={fetchingImages}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                    title="Automatically fetch product images from Amazon, eBay, and UPC databases"
+                  >
+                    {fetchingImages ? (
+                      <div className="w-4 h-4 mr-2 border border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Image className="w-4 h-4 mr-2" />
+                    )}
+                    {fetchingImages ? 'Fetching Images...' : 'Fetch External Images'}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
