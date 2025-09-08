@@ -10,7 +10,6 @@ interface ImageFetchRequest {
 // Function to search for product images from various sources
 async function searchProductImages(upc: string, productTitle: string): Promise<string[]> {
   const imageUrls: string[] = []
-  
   try {
     // Try UPCItemDB API first (if available)
     if (process.env.UPCITEMDB_API_KEY) {
@@ -21,7 +20,6 @@ async function searchProductImages(upc: string, productTitle: string): Promise<s
             'Accept': 'application/json'
           }
         })
-        
         if (upcResponse.ok) {
           const upcData = await upcResponse.json()
           if (upcData.items && upcData.items.length > 0) {
@@ -35,33 +33,38 @@ async function searchProductImages(upc: string, productTitle: string): Promise<s
         console.log('UPCItemDB lookup failed:', error)
       }
     }
-    
-    // If no images from UPC, try searching by product title
-    if (imageUrls.length === 0) {
+
+    // If no images from UPC, try Google Custom Search API (CSE)
+    if (imageUrls.length === 0 && process.env.GOOGLE_CSE_KEY && process.env.GOOGLE_CSE_CX) {
       try {
-        // Use a simple image search (you could integrate with Google Images API, Bing, etc.)
-        // For now, we'll use a basic approach
         const searchQuery = encodeURIComponent(productTitle + ' product image')
-        
-        // This is a placeholder - in a real implementation, you'd use proper image search APIs
-        console.log(`Would search for images with query: ${searchQuery}`)
-        
-        // For demo purposes, let's add some placeholder logic
-        // In production, you'd integrate with proper image search services
-        
+        const googleUrl = `https://www.googleapis.com/customsearch/v1?q=${searchQuery}&cx=${process.env.GOOGLE_CSE_CX}&key=${process.env.GOOGLE_CSE_KEY}&searchType=image&num=5`;
+        const googleResponse = await fetch(googleUrl);
+        if (googleResponse.ok) {
+          const googleData = await googleResponse.json();
+          if (googleData.items && Array.isArray(googleData.items)) {
+            for (const img of googleData.items.slice(0, 3)) {
+              if (img.link) imageUrls.push(img.link);
+            }
+          }
+        } else {
+          console.log('Google CSE Image Search failed:', await googleResponse.text());
+        }
       } catch (error) {
-        console.log('Image search failed:', error)
+        console.log('Google CSE Image Search error:', error);
       }
+    } else if (imageUrls.length === 0) {
+      console.log('No Google CSE API key or CSE ID set, cannot perform image search.');
     }
-    
   } catch (error) {
     console.error('Error in searchProductImages:', error)
   }
-  
+  return imageUrls
   return imageUrls
 }
 
 export async function POST(request: NextRequest) {
+  console.log('API /api/vision/fetch-images POST called')
   try {
     const { upc, productTitle, productId }: ImageFetchRequest = await request.json()
     
@@ -78,19 +81,17 @@ export async function POST(request: NextRequest) {
     const imageUrls = await searchProductImages(upc, productTitle)
     
     let imagesAdded = 0
-    
+    const newImages = []
     // Add images to the product if found
     if (imageUrls.length > 0) {
       for (let i = 0; i < imageUrls.length; i++) {
         const imageUrl = imageUrls[i]
-        
         try {
           // Validate that the URL is accessible
           const imageResponse = await fetch(imageUrl, { method: 'HEAD' })
-          
           if (imageResponse.ok) {
             // Add image to product
-            await prisma.productImage.create({
+            const created = await prisma.productImage.create({
               data: {
                 productId: productId,
                 originalUrl: imageUrl,
@@ -98,7 +99,7 @@ export async function POST(request: NextRequest) {
                 uploadStatus: 'completed'
               }
             })
-            
+            newImages.push(created)
             imagesAdded++
             console.log(`Added image ${i + 1} for ${productTitle}: ${imageUrl}`)
           } else {
@@ -109,13 +110,12 @@ export async function POST(request: NextRequest) {
         }
       }
     }
-    
     return NextResponse.json({
       success: true,
       message: `Found and added ${imagesAdded} images`,
       imagesAdded,
       productId,
-      imageUrls: imageUrls.slice(0, imagesAdded)
+      images: newImages
     })
     
   } catch (error) {

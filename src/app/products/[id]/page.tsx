@@ -667,60 +667,52 @@ export default function ProductDetailPage() {
   }
 
   const fetchExternalImages = async () => {
+    console.log('FETCH EXTERNAL IMAGES called', {
+      productId: product?.id,
+      upc: product?.upc,
+      productTitle: product?.title
+    })
     if (!product || fetchingImages) return
     setFetchingImages(true)
     
     try {
-      const response = await fetch('/api/images/fetch-external', {
+      const response = await fetch('/api/vision/fetch-images', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           productId: product.id,
           upc: product.upc,
-          sources: ['amazon', 'ebay', 'upcitemdb']
+          productTitle: product.title
         })
       })
-      
       if (response.ok) {
-        const result = await response.json()
-        
-        // Update product with new images
-        if (result.data?.images && result.data.images.length > 0) {
-          const updatedImages = [...(product.images || []), ...result.data.images]
-            .map((img, idx) => ({ ...img, imageNumber: idx + 1 }))
-          
-          setProduct({ ...product, images: updatedImages })
-          setHasUnsavedChanges(true)
-          
-          // Show success feedback
-          const successMsg = document.createElement('div')
-          successMsg.innerHTML = `✅ Fetched ${result.data.fetched} new images successfully!`
-          successMsg.className = 'fixed top-20 right-6 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right'
-          document.body.appendChild(successMsg)
-          setTimeout(() => document.body.removeChild(successMsg), 3000)
-        } else {
-          // Show info message if no images found
-          const infoMsg = document.createElement('div')
-          infoMsg.innerHTML = '📷 No new images found from external sources'
-          infoMsg.className = 'fixed top-20 right-6 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right'
-          document.body.appendChild(infoMsg)
-          setTimeout(() => document.body.removeChild(infoMsg), 3000)
-        }
+        await fetchProduct(); // Always re-fetch product to get latest images
+        // Show success feedback
+        const result = await response.json();
+        const found = result.images?.length || 0;
+        const msg = found > 0
+          ? `✅ Fetched ${found} new images successfully!`
+          : '📷 No new images found from external sources';
+        const color = found > 0 ? 'green' : 'blue';
+        const infoMsg = document.createElement('div');
+        infoMsg.innerHTML = msg;
+        infoMsg.className = `fixed top-20 right-6 bg-${color}-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right`;
+        document.body.appendChild(infoMsg);
+        setTimeout(() => document.body.removeChild(infoMsg), 3000);
       } else {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to fetch images')
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch images');
       }
     } catch (error) {
-      console.error('Error fetching external images:', error)
-      // Show error feedback
-      const errorMsg = document.createElement('div')
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-      errorMsg.innerHTML = `❌ Failed to fetch images: ${errorMessage}`
-      errorMsg.className = 'fixed top-20 right-6 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right'
-      document.body.appendChild(errorMsg)
-      setTimeout(() => document.body.removeChild(errorMsg), 4000)
+      console.error('Error fetching external images:', error);
+      const errorMsg = document.createElement('div');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      errorMsg.innerHTML = `❌ Failed to fetch images: ${errorMessage}`;
+      errorMsg.className = 'fixed top-20 right-6 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right';
+      document.body.appendChild(errorMsg);
+      setTimeout(() => document.body.removeChild(errorMsg), 4000);
     } finally {
-      setFetchingImages(false)
+      setFetchingImages(false);
     }
   }
 

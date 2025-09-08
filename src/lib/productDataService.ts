@@ -179,11 +179,13 @@ class ProductDataService {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 10000)
       
-      const response = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${upc}`, {
+      const response = await fetch('https://api.upcitemdb.com/prod/trial/lookup', {
+        method: 'POST',
         headers: {
-          'Accept': 'application/json',
+          'Content-Type': 'application/json',
           'User-Agent': 'InventoryScanner/1.0'
         },
+        body: JSON.stringify({ upc: upc }),
         signal: controller.signal
       })
       
@@ -240,11 +242,13 @@ class ProductDataService {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 15000)
       
-      const response = await fetch(`${apiUrl}/${upc}?key=${apiKey}`, {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
         headers: {
-          'Accept': 'application/json',
+          'Content-Type': 'application/json',
           'User-Agent': 'InventoryScanner/1.0'
         },
+        body: JSON.stringify({ upc: upc, key: apiKey }),
         signal: controller.signal
       })
       

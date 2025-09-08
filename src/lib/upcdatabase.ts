@@ -74,16 +74,18 @@ class UPCDatabaseService {
     }
 
     try {
-      const url = `${this.baseUrl}/product/${upc}/${this.apiKey}`
+      const url = `${this.baseUrl}/product/${upc}`
       
       console.log(`📡 UPCDatabase.org lookup for UPC: ${upc}`)
       console.log(`📊 Lookups remaining: ${this.usageTracking.lookups.remaining}/${this.usageTracking.lookups.limit}`)
 
       const response = await fetch(url, {
-        method: 'GET',
+        method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ key: this.apiKey })
       })
 
       // Update usage tracking

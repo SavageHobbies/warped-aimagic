@@ -42,6 +42,7 @@ export default function InventoryPage() {
   const [creatingDrafts, setCreatingDrafts] = useState(false)
   const [deletingProducts, setDeletingProducts] = useState(false)
   const [enhancingProducts, setEnhancingProducts] = useState(false)
+  const [fetchingImages, setFetchingImages] = useState(false)
   const [editingField, setEditingField] = useState<{productId: string, field: string} | null>(null)
   const [editValue, setEditValue] = useState('')
 
@@ -322,6 +323,136 @@ export default function InventoryPage() {
     }
   }
 
+  const bulkFetchMissingImages = async () => {
+    if (selectedProducts.size === 0) {
+      alert('Please select products to fetch images for')
+      return
+    }
+
+    // Filter to only products that actually need images
+    const productIds = Array.from(selectedProducts)
+    const productsNeedingImages = products.filter(p => 
+      productIds.includes(p.id) && (!p.images || p.images.length === 0)
+    )
+    
+    if (productsNeedingImages.length === 0) {
+      alert('All selected products already have images!')
+      return
+    }
+
+    const confirmMessage = `Fetch images for ${productsNeedingImages.length} product${productsNeedingImages.length > 1 ? 's' : ''} that have no images?\n\nThis will search Amazon, eBay, and UPC databases for product images.`
+    
+    if (!confirm(confirmMessage)) {
+      return
+    }
+
+    setFetchingImages(true)
+    let successCount = 0
+    let errorCount = 0
+    let imagesFound = 0
+    const errors: string[] = []
+
+    try {
+      console.log('Fetching images for products:', productsNeedingImages.map(p => p.title))
+      
+      // Show progress indicator
+      const progressDiv = document.createElement('div')
+      progressDiv.innerHTML = `
+        <div class="fixed top-20 right-6 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right">
+          <div class="flex items-center space-x-2">
+            <div class="w-4 h-4 border border-white border-t-transparent rounded-full animate-spin"></div>
+            <span>Fetching images for 0 of ${productsNeedingImages.length} products...</span>
+          </div>
+        </div>
+      `
+      document.body.appendChild(progressDiv)
+      
+      // Fetch images for each product that needs them
+      for (let i = 0; i < productsNeedingImages.length; i++) {
+        const product = productsNeedingImages[i]
+        
+        // Update progress
+        const progressElement = progressDiv.querySelector('span')
+        if (progressElement) {
+          progressElement.textContent = `Fetching images for ${i + 1} of ${productsNeedingImages.length} products...`
+        }
+        
+        try {
+          const response = await fetch('/api/vision/fetch-images', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productId: product.id,
+              upc: product.upc,
+              productTitle: product.title
+            })
+          })
+
+          if (response.ok) {
+            const result = await response.json()
+            successCount++
+            if (result.images && result.images.length > 0) {
+              imagesFound += result.images.length
+            }
+            console.log(`✅ Processed: ${product.title} (${result.images?.length || 0} images found)`)
+          } else {
+            const errorData = await response.json()
+            errors.push(`${product.title}: ${errorData.error || 'Unknown error'}`)
+            errorCount++
+          }
+        } catch (error) {
+          console.error(`Error fetching images for product ${product.id}:`, error)
+          errors.push(`${product.title}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          errorCount++
+        }
+        
+        // Add delay between requests to avoid rate limiting
+        if (i < productsNeedingImages.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+      }
+      
+      // Remove progress indicator
+      document.body.removeChild(progressDiv)
+
+      // Show comprehensive results
+      if (successCount > 0 && errorCount === 0) {
+        // Complete success
+        const successMsg = document.createElement('div')
+        successMsg.innerHTML = `
+          <div class="fixed top-20 right-6 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg z-50 animate-in fade-in slide-in-from-right max-w-md">
+            <div class="font-bold text-lg mb-2">📷 Bulk Image Fetch Complete!</div>
+            <div class="text-sm space-y-1">
+              <div>• ${successCount} products processed</div>
+              <div>• ${imagesFound} images found and added</div>
+              <div>• ${productsNeedingImages.length - successCount} products had no available images</div>
+            </div>
+          </div>
+        `
+        document.body.appendChild(successMsg)
+        setTimeout(() => document.body.removeChild(successMsg), 5000)
+        
+        // Clear selection and refresh
+        setSelectedProducts(new Set())
+        await fetchInventory()
+      } else if (successCount > 0 && errorCount > 0) {
+        // Partial success
+        const summaryMsg = `Bulk Image Fetch Results:\n\n📷 ${successCount} products processed\n❌ ${errorCount} failed\n• ${imagesFound} total images found\n\nErrors:\n${errors.slice(0, 3).join('\n')}${errors.length > 3 ? '\n...and more' : ''}`
+        alert(summaryMsg)
+        setSelectedProducts(new Set())
+        await fetchInventory()
+      } else {
+        // Complete failure
+        alert(`Image fetch failed for all ${errorCount} products.\n\nErrors:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...and more' : ''}`)
+      }
+    } catch (error) {
+      console.error('Bulk image fetch error:', error)
+      alert('Failed to fetch images. Please try again.')
+    } finally {
+      setFetchingImages(false)
+    }
+  }
+
   const bulkEnhanceProducts = async () => {
     if (selectedProducts.size === 0) {
       alert('Please select products to enhance')
@@ -444,10 +575,9 @@ export default function InventoryPage() {
         `
         document.body.appendChild(successMsg)
         setTimeout(() => document.body.removeChild(successMsg), 5000)
-        
         // Clear selection and refresh
         setSelectedProducts(new Set())
-        await fetchInventory()
+        await fetchInventory() // Always re-fetch inventory after bulk enhance
       } else if (successCount > 0 && errorCount > 0) {
         // Partial success
         const summaryMsg = `Bulk Enhancement Results:\n\n✅ ${successCount} products enhanced\n❌ ${errorCount} failed\n• ${externalDataCount} got external data\n• ${pricingAppliedCount} got pricing updates\n\nErrors:\n${errors.slice(0, 3).join('\n')}${errors.length > 3 ? '\n...and more' : ''}`
@@ -465,6 +595,8 @@ export default function InventoryPage() {
       setEnhancingProducts(false)
     }
   }
+
+
 
   const startEditing = (productId: string, field: string, currentValue: string | number) => {
     setEditingField({productId, field})
@@ -644,6 +776,29 @@ export default function InventoryPage() {
                     <>
                       <Send className="w-4 h-4 mr-2" />
                       Create Drafts ({selectedProducts.size})
+                    </>
+                  )}
+                </Button>
+                
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={bulkFetchMissingImages}
+                  disabled={fetchingImages}
+                  className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                >
+                  {fetchingImages ? (
+                    <>
+                      <div className="w-4 h-4 mr-2 border border-blue-400 border-t-transparent rounded-full animate-spin" />
+                      Fetching Images...
+                    </>
+                  ) : (
+                    <>
+                      <ImageIcon className="w-4 h-4 mr-2" />
+                      Fetch Missing Images ({Array.from(selectedProducts).filter(id => {
+                        const product = products.find(p => p.id === id)
+                        return product && (!product.images || product.images.length === 0)
+                      }).length})
                     </>
                   )}
                 </Button>

@@ -1,0 +1,12 @@
+services:
+  frontend:
+    build: .
+    container_name: warped-aimagic-frontend
+    working_dir: /app
+    ports:
+      - "3074:3074"
+    environment:
+      - NODE_ENV=production
+      - PORT=3074
+      - GOOGLE_CSE_KEY=${GOOGLE_CSE_KEY}
+      - GOOGLE_CSE_CX=${GOOGLE_CSE_CX}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { geminiService, type ProductData } from '@/lib/gemini'
 import { productDataService, type ExternalProductData } from '@/lib/productDataService'
+import { conductMarketResearch } from '@/lib/marketResearchService'
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,22 +61,16 @@ export async function POST(request: NextRequest) {
     if (includeMarketResearch) {
       try {
         console.log(`📊 Conducting market research for: ${product.title}`)
-        const marketResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/optimizer/market-research`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            productId: product.id,
-            upc: product.upc,
-            productInfo: {
-              title: product.title,
-              brand: product.brand,
-              price: product.lowestRecordedPrice
-            }
-          })
+        marketResearch = await conductMarketResearch({
+          productId: product.id,
+          upc: product.upc,
+          productInfo: {
+            title: product.title,
+            brand: product.brand,
+            price: product.lowestRecordedPrice
+          }
         })
-        
-        if (marketResponse.ok) {
-          marketResearch = await marketResponse.json()
+        if (marketResearch) {
           console.log(`📈 Market research completed:`, marketResearch.insights)
         }
       } catch (error) {
@@ -225,90 +220,37 @@ export async function POST(request: NextRequest) {
         }
       })
 
-      // Step 6.5: Process and save external images if available
+
+      // Step 6.5: If product has no images, trigger image fetch
+      let newImages: any[] = []
       let imageStats = { added: 0, skipped: 0, errors: 0 }
-      
-      // Debug: Log external data structure
-      console.log(`🔍 External data available:`, !!externalData)
-      if (externalData) {
-        console.log(`🔍 External data source:`, externalData.source)
-        console.log(`🔍 External data images:`, externalData.images?.length || 0, 'images found')
-        console.log(`🔍 External data images array:`, externalData.images)
-      }
-      
-      if (externalData?.images && externalData.images.length > 0) {
-        console.log(`📸 Processing ${externalData.images.length} external images...`)
-        
-        // Get existing images to avoid duplicates
-        const existingImages = await prisma.productImage.findMany({
-          where: { productId },
-          select: { originalUrl: true, imageNumber: true }
-        })
-        
-        const existingUrls = new Set(existingImages.map(img => img.originalUrl))
-        let nextImageNumber = existingImages.length > 0 
-          ? Math.max(...existingImages.map(img => img.imageNumber)) + 1 
-          : 1
-        
-        for (const imageUrl of externalData.images.slice(0, 10)) { // Limit to 10 images
-          try {
-            // Skip if we already have this image
-            if (existingUrls.has(imageUrl)) {
-              imageStats.skipped++
-              continue
-            }
-            
-            // Validate image URL
-            if (!imageUrl || !imageUrl.startsWith('http')) {
-              console.log(`⚠️ Skipping invalid image URL: ${imageUrl}`)
-              imageStats.skipped++
-              continue
-            }
-            
-            // Test if image is accessible
-            try {
-              const controller = new AbortController()
-              const timeoutId = setTimeout(() => controller.abort(), 5000)
-              
-              const imageResponse = await fetch(imageUrl, { 
-                method: 'HEAD',
-                signal: controller.signal
-              })
-              
-              clearTimeout(timeoutId)
-              
-              if (!imageResponse.ok || !imageResponse.headers.get('content-type')?.startsWith('image/')) {
-                console.log(`⚠️ Invalid or inaccessible image: ${imageUrl}`)
-                imageStats.skipped++
-                continue
-              }
-            } catch (testError) {
-              console.log(`⚠️ Cannot access image: ${imageUrl}`, testError.message)
-              imageStats.skipped++
-              continue
-            }
-            
-            // Create image record
-            await prisma.productImage.create({
-              data: {
-                productId,
-                imageNumber: nextImageNumber,
-                originalUrl: imageUrl,
-                uploadStatus: 'pending'
-              }
+      const productImages = await prisma.productImage.findMany({ where: { productId } })
+      if (!productImages || productImages.length === 0) {
+        // Call the image fetch API internally
+        try {
+          const fetchRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3074'}/api/vision/fetch-images`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productId,
+              upc: product.upc,
+              productTitle: product.title
             })
-            
-            console.log(`✅ Added image ${nextImageNumber}: ${imageUrl}`)
-            nextImageNumber++
-            imageStats.added++
-            
-          } catch (error) {
-            console.error(`❌ Error processing image ${imageUrl}:`, error)
-            imageStats.errors++
+          })
+          if (fetchRes.ok) {
+            const fetchResult = await fetchRes.json()
+            newImages = fetchResult.images || []
+            imageStats = {
+              added: fetchResult.imagesAdded || 0,
+              skipped: 0,
+              errors: 0
+            }
+          } else {
+            console.error('Failed to fetch images during AI enhancement:', await fetchRes.text())
           }
+        } catch (err) {
+          console.error('Error calling fetch-images API during AI enhancement:', err)
         }
-        
-        console.log(`📸 Image processing complete:`, imageStats)
       }
 
       // Step 7: Save comprehensive AI content to database
@@ -441,7 +383,7 @@ export async function POST(request: NextRequest) {
       })
 
       // Process images in fallback too
-      let imageStats = { added: 0, skipped: 0, errors: 0 }
+      const imageStats = { added: 0, skipped: 0, errors: 0 }
       if (externalData?.images && externalData.images.length > 0) {
         console.log(`📸 Processing ${externalData.images.length} external images (fallback)...`)
         
